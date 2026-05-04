@@ -28,13 +28,9 @@ const formatarData = (dataString: string | null | undefined) => {
   }
 };
 
-// === NOVA FUNÇÃO: MÁSCARA INTELIGENTE DE CPF ===
 const mascaraCPF = (valor: string) => {
-  // Remove tudo que não for número
   let v = valor.replace(/\D/g, "");
-  // Limita a 11 números
   if (v.length > 11) v = v.slice(0, 11);
-  // Coloca os pontos e o traço automaticamente
   v = v.replace(/(\d{3})(\d)/, "$1.$2");
   v = v.replace(/(\d{3})(\d)/, "$1.$2");
   v = v.replace(/(\d{3})(\d{1,2})$/, "$1-$2");
@@ -324,7 +320,6 @@ export default function Dashboard() {
                                     <input type="text" name="nomeCompleto" defaultValue={jovemSelecionado?.nomeCompleto || ""} required className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100" />
                                 </div>
                                 
-                                {/* === CAMPO CPF COM A MÁSCARA AUTOMÁTICA AQUI === */}
                                 <div>
                                     <label className="block text-sm font-semibold text-slate-700 mb-2">CPF do Adolescente</label>
                                     <input 
@@ -372,9 +367,12 @@ export default function Dashboard() {
                                 </div>
                                 <div>
                                     <label className="block text-sm font-semibold text-slate-700 mb-2">Situação/Medida</label>
+                                    {/* === NOVAS OPÇÕES DE SITUAÇÃO / MEDIDA AQUI === */}
                                     <select name="situacaoMedida" defaultValue={jovemSelecionado?.situacaoMedida || ""} className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100">
                                         <option value="">Selecione...</option>
+                                        <option value="Atendimento Inicial">Atendimento Inicial</option>
                                         <option value="Internação Provisória">Internação Provisória</option>
+                                        <option value="Atendimento Inicial e Internação Provisória">Atendimento Inicial e Internação Provisória</option>
                                         <option value="Internação Estrita">Internação Estrita</option>
                                         <option value="Semiliberdade">Semiliberdade</option>
                                     </select>
