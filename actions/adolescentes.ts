@@ -2,7 +2,7 @@
 
 import { db } from "../db/index";
 import { adolescentes } from "../db/schema";
-import { eq } from "drizzle-orm"; // Necessário para encontrar o ID certo na hora de editar/excluir
+import { eq } from "drizzle-orm"; 
 import { revalidatePath } from "next/cache";
 
 export async function getAdolescentes() {
@@ -19,6 +19,7 @@ export async function salvarAdolescente(dadosFormulario: any) {
   try {
     await db.insert(adolescentes).values({
       nomeCompleto: dadosFormulario.nomeCompleto,
+      cpf: dadosFormulario.cpf, // <-- ENVIANDO CPF PARA O BANCO
       dataApreensao: dadosFormulario.dataApreensao,
       dataAdmissao: dadosFormulario.dataAdmissao,
       dataNascimento: dadosFormulario.dataNascimento,
@@ -43,11 +44,11 @@ export async function salvarAdolescente(dadosFormulario: any) {
   }
 }
 
-// === NOVA FUNÇÃO: ATUALIZAR ADOLESCENTE ===
 export async function atualizarAdolescente(id: number, dadosFormulario: any) {
     try {
       await db.update(adolescentes).set({
         nomeCompleto: dadosFormulario.nomeCompleto,
+        cpf: dadosFormulario.cpf, // <-- ENVIANDO CPF NA ATUALIZAÇÃO
         dataApreensao: dadosFormulario.dataApreensao,
         dataAdmissao: dadosFormulario.dataAdmissao,
         dataNascimento: dadosFormulario.dataNascimento,
@@ -69,9 +70,8 @@ export async function atualizarAdolescente(id: number, dadosFormulario: any) {
       console.error("Erro ao atualizar:", error);
       return { sucesso: false, erro: "Falha ao atualizar no banco de dados." };
     }
-  }
+}
 
-// === NOVA FUNÇÃO: EXCLUIR ADOLESCENTE ===
 export async function excluirAdolescente(id: number) {
     try {
       await db.delete(adolescentes).where(eq(adolescentes.id, id));
@@ -81,4 +81,4 @@ export async function excluirAdolescente(id: number) {
       console.error("Erro ao excluir:", error);
       return { sucesso: false, erro: "Falha ao excluir no banco de dados." };
     }
-  }
+}

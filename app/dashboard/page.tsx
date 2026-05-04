@@ -28,11 +28,23 @@ const formatarData = (dataString: string | null | undefined) => {
   }
 };
 
+// === NOVA FUNÇÃO: MÁSCARA INTELIGENTE DE CPF ===
+const mascaraCPF = (valor: string) => {
+  // Remove tudo que não for número
+  let v = valor.replace(/\D/g, "");
+  // Limita a 11 números
+  if (v.length > 11) v = v.slice(0, 11);
+  // Coloca os pontos e o traço automaticamente
+  v = v.replace(/(\d{3})(\d)/, "$1.$2");
+  v = v.replace(/(\d{3})(\d)/, "$1.$2");
+  v = v.replace(/(\d{3})(\d{1,2})$/, "$1-$2");
+  return v;
+};
+
 export default function Dashboard() {
   const [busca, setBusca] = useState("");
   const [anoFiltro, setAnoFiltro] = useState("Todos");
   
-  // === NOVOS CONTROLES DA MODAL ===
   const [modoModal, setModoModal] = useState<'fechado' | 'novo' | 'ver' | 'editar'>('fechado');
   const [jovemSelecionado, setJovemSelecionado] = useState<any>(null);
 
@@ -41,13 +53,11 @@ export default function Dashboard() {
   const [salvando, setSalvando] = useState(false);
   const [exportandoExcel, setExportandoExcel] = useState(false);
   
-  // Controle de Permissão do Usuário Logado
   const [usuarioNome, setUsuarioNome] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
 
   const carregarDados = async () => {
     setCarregando(true);
-    // Puxa os dados E a sessão do usuário ao mesmo tempo
     const [dadosReais, sessao] = await Promise.all([getAdolescentes(), getSessao()]);
     setDados(dadosReais);
     
@@ -64,17 +74,16 @@ export default function Dashboard() {
 
   const dadosFiltrados = dados.filter((jovem) => {
     const matchNome = jovem.nomeCompleto?.toLowerCase().includes(busca.toLowerCase());
+    const matchCpf = jovem.cpf?.includes(busca);
     const matchAno = anoFiltro === "Todos" || jovem.anoRegistro?.toString() === anoFiltro;
-    return matchNome && matchAno;
+    return (matchNome || matchCpf) && matchAno;
   });
 
-  // === ABRIR MODAL (Ver, Editar ou Novo) ===
   const abrirModal = (modo: 'novo' | 'ver' | 'editar', jovem: any = null) => {
     setJovemSelecionado(jovem);
     setModoModal(modo);
   };
 
-  // === EXCLUIR REGISTRO ===
   const handleExcluir = async (id: number) => {
     if (confirm("ATENÇÃO: Tem certeza que deseja excluir permanentemente este adolescente do banco de dados?")) {
       const res = await excluirAdolescente(id);
@@ -83,7 +92,6 @@ export default function Dashboard() {
     }
   };
 
-  // === SALVAR OU ATUALIZAR REGISTRO ===
   const handleSalvar = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setSalvando(true);
@@ -107,13 +115,11 @@ export default function Dashboard() {
     setSalvando(false);
   };
 
-  // Logística de Logout
   const sair = async () => {
       await fazerLogout();
       window.location.href = '/';
   }
 
-  // === CÓDIGOS DE EXPORTAÇÃO (MANTIDOS INTACTOS) ===
   const exportarParaPDF = () => {
     if (dadosFiltrados.length === 0) return alert("Sem dados para exportar.");
     const doc = new jsPDF('landscape'); 
@@ -123,7 +129,7 @@ export default function Dashboard() {
     doc.text(`Filtro atual: ${anoFiltro} | Registros: ${dadosFiltrados.length}`, 14, 28);
 
     const tableData = dadosFiltrados.map((jovem, index) => [
-      index + 1, jovem.nomeCompleto || "", formatarData(jovem.dataApreensao), formatarData(jovem.dataAdmissao),
+      index + 1, jovem.nomeCompleto || "", jovem.cpf || "", formatarData(jovem.dataApreensao), formatarData(jovem.dataAdmissao),
       formatarData(jovem.dataNascimento), calcularIdade(jovem.dataNascimento), jovem.nomeResponsavel || "",
       jovem.endereco || "", jovem.bairro || "", jovem.comarca || "", jovem.atoInfracional || "",
       jovem.serieAnoEscolar || "", jovem.situacaoMedida || "", formatarData(jovem.dataSaida), jovem.destino || ""
@@ -131,7 +137,7 @@ export default function Dashboard() {
 
     autoTable(doc, {
       startY: 35,
-      head: [['Nº', 'NOME', 'DATA APREENSÃO', 'DATA ADMISSÃO', 'D.N.', 'IDADE', 'RESPONSÁVEL', 'ENDEREÇO', 'BAIRRO', 'COMARCA', 'ATO INFRACIONAL', 'SÉRIE/ ANO', 'SITUAÇÃO/ MEDIDA', 'DATA SAÍDA', 'DESTINO']],
+      head: [['Nº', 'NOME', 'CPF', 'DATA APREENSÃO', 'DATA ADMISSÃO', 'D.N.', 'IDADE', 'RESPONSÁVEL', 'ENDEREÇO', 'BAIRRO', 'COMARCA', 'ATO INFRACIONAL', 'SÉRIE/ ANO', 'SITUAÇÃO/ MEDIDA', 'DATA SAÍDA', 'DESTINO']],
       body: tableData, theme: 'grid', headStyles: { fillColor: [37, 99, 235], fontSize: 6 }, styles: { fontSize: 6, cellPadding: 1 }, 
     });
     doc.save(`relatorio_csiprc_${anoFiltro}.pdf`);
@@ -151,11 +157,24 @@ export default function Dashboard() {
       let linhaAtual = 3;
       dadosFiltrados.forEach((jovem, index) => {
         const row = worksheet.getRow(linhaAtual);
-        row.getCell(1).value = index + 1; row.getCell(2).value = jovem.nomeCompleto || ""; row.getCell(3).value = formatarData(jovem.dataApreensao);
-        row.getCell(4).value = formatarData(jovem.dataAdmissao); row.getCell(5).value = formatarData(jovem.dataNascimento); row.getCell(6).value = calcularIdade(jovem.dataNascimento);
-        row.getCell(7).value = jovem.nomeResponsavel || ""; row.getCell(8).value = jovem.endereco || ""; row.getCell(9).value = jovem.bairro || "";
-        row.getCell(10).value = jovem.comarca || ""; row.getCell(11).value = jovem.atoInfracional || ""; row.getCell(12).value = jovem.serieAnoEscolar || "";
-        row.getCell(13).value = jovem.situacaoMedida || ""; row.getCell(14).value = formatarData(jovem.dataSaida); row.getCell(15).value = jovem.destino || "";
+        
+        row.getCell(1).value = index + 1; 
+        row.getCell(2).value = jovem.nomeCompleto || ""; 
+        row.getCell(3).value = jovem.cpf || ""; 
+        row.getCell(4).value = formatarData(jovem.dataApreensao);
+        row.getCell(5).value = formatarData(jovem.dataAdmissao); 
+        row.getCell(6).value = formatarData(jovem.dataNascimento); 
+        row.getCell(7).value = calcularIdade(jovem.dataNascimento);
+        row.getCell(8).value = jovem.nomeResponsavel || ""; 
+        row.getCell(9).value = jovem.endereco || ""; 
+        row.getCell(10).value = jovem.bairro || "";
+        row.getCell(11).value = jovem.comarca || ""; 
+        row.getCell(12).value = jovem.atoInfracional || ""; 
+        row.getCell(13).value = jovem.serieAnoEscolar || "";
+        row.getCell(14).value = jovem.situacaoMedida || ""; 
+        row.getCell(15).value = formatarData(jovem.dataSaida); 
+        row.getCell(16).value = jovem.destino || "";
+        
         row.commit(); linhaAtual++;
       });
       const buffer = await workbook.xlsx.writeBuffer();
@@ -173,7 +192,7 @@ export default function Dashboard() {
     let texto = `*BANCO DE DADOS CSIPRC*\nFiltro: ${anoFiltro} | Total: ${dadosFiltrados.length} registros\n\n`;
     for (let i = 0; i < Math.min(dadosFiltrados.length, 15); i++) {
       const j = dadosFiltrados[i];
-      texto += `*Nº ${i + 1} - ${j.nomeCompleto}* (${calcularIdade(j.dataNascimento)} anos)\n├ Admissão: ${formatarData(j.dataAdmissao)}\n├ Ato Infracional: ${j.atoInfracional || 'Não inf.'}\n└ Medida: ${j.situacaoMedida || 'Não inf.'}\n\n`;
+      texto += `*Nº ${i + 1} - ${j.nomeCompleto}* (${calcularIdade(j.dataNascimento)} anos)\n├ CPF: ${j.cpf || 'Não inf.'}\n├ Admissão: ${formatarData(j.dataAdmissao)}\n└ Medida: ${j.situacaoMedida || 'Não inf.'}\n\n`;
     }
     if (dadosFiltrados.length > 15) texto += `...e mais ${dadosFiltrados.length - 15} adolescentes.`;
     window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, '_blank');
@@ -213,8 +232,8 @@ export default function Dashboard() {
 
             <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row gap-4">
                 <div className="flex-1">
-                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Buscar por Nome</label>
-                    <input type="text" placeholder="Digite o nome..." className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 transition-all" value={busca} onChange={(e) => setBusca(e.target.value)} />
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Buscar por Nome ou CPF</label>
+                    <input type="text" placeholder="Digite o nome ou CPF..." className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 transition-all" value={busca} onChange={(e) => setBusca(e.target.value)} />
                 </div>
                 <div className="w-full md:w-56">
                     <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Filtrar por Ano</label>
@@ -233,9 +252,9 @@ export default function Dashboard() {
                         <thead>
                             <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 text-sm">
                                 <th className="p-4 font-bold uppercase tracking-wider text-xs">Nome Completo</th>
+                                <th className="p-4 font-bold uppercase tracking-wider text-xs">CPF</th>
                                 <th className="p-4 font-bold uppercase tracking-wider text-xs">Admissão</th>
                                 <th className="p-4 font-bold uppercase tracking-wider text-xs">Idade</th>
-                                <th className="p-4 font-bold uppercase tracking-wider text-xs">Ato Infracional</th>
                                 <th className="p-4 font-bold uppercase tracking-wider text-xs">Situação/Medida</th>
                                 <th className="p-4 font-bold uppercase tracking-wider text-xs text-right">Ações</th>
                             </tr>
@@ -249,11 +268,11 @@ export default function Dashboard() {
                               dadosFiltrados.map((jovem) => (
                                   <tr key={jovem.id} className="hover:bg-blue-50/50 transition-colors group">
                                       <td className="p-4 font-bold text-slate-800">{jovem.nomeCompleto}</td>
+                                      <td className="p-4 text-slate-600 text-sm">{jovem.cpf || '-'}</td>
                                       <td className="p-4 text-slate-600 text-sm">{formatarData(jovem.dataAdmissao)}</td>
                                       <td className="p-4 text-slate-600 text-sm">
                                           <span className="bg-slate-100 text-slate-800 px-3 py-1 rounded-lg font-bold border border-slate-200">{calcularIdade(jovem.dataNascimento)} anos</span>
                                       </td>
-                                      <td className="p-4 text-slate-600 text-sm font-medium">{jovem.atoInfracional}</td>
                                       <td className="p-4 text-slate-600 text-sm">
                                           <span className={`px-3 py-1 rounded-lg font-bold text-xs border ${jovem.situacaoMedida?.includes('Provisória') ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
                                               {jovem.situacaoMedida}
@@ -262,7 +281,6 @@ export default function Dashboard() {
                                       <td className="p-4 text-right space-x-3">
                                           <button onClick={() => abrirModal('ver', jovem)} className="text-blue-600 font-bold text-sm hover:underline">Ver Ficha</button>
                                           
-                                          {/* BOTÕES EXCLUSIVOS DO ADMIN */}
                                           {isAdmin && (
                                               <>
                                                 <button onClick={() => abrirModal('editar', jovem)} className="text-amber-500 font-bold text-sm hover:underline">Editar</button>
@@ -279,7 +297,6 @@ export default function Dashboard() {
             </div>
         </main>
 
-        {/* === MODAL INTELIGENTE === */}
         {modoModal !== 'fechado' && (
             <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 sm:p-6">
                 <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col animate-fade-in-up">
@@ -297,16 +314,30 @@ export default function Dashboard() {
                     </div>
 
                     <div className="p-6 overflow-y-auto flex-1">
-                        {/* A propriedade 'key' força o formulário a recarregar as informações quando abrimos jovens diferentes */}
                         <form id="formCadastro" key={jovemSelecionado?.id || 'novo'} onSubmit={handleSalvar}>
-                            {/* FIELDSET bloqueia tudo se for modo 'ver' */}
                             <fieldset disabled={modoModal === 'ver'} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                                 
                                 <div className="col-span-full"><h4 className="text-sm font-bold text-blue-600 uppercase tracking-wider mb-2 border-b border-slate-100 pb-2">Identificação</h4></div>
+                                
                                 <div className="col-span-1 md:col-span-2">
                                     <label className="block text-sm font-semibold text-slate-700 mb-2">Nome (NOME)</label>
                                     <input type="text" name="nomeCompleto" defaultValue={jovemSelecionado?.nomeCompleto || ""} required className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100" />
                                 </div>
+                                
+                                {/* === CAMPO CPF COM A MÁSCARA AUTOMÁTICA AQUI === */}
+                                <div>
+                                    <label className="block text-sm font-semibold text-slate-700 mb-2">CPF do Adolescente</label>
+                                    <input 
+                                        type="text" 
+                                        name="cpf" 
+                                        maxLength={14}
+                                        defaultValue={jovemSelecionado?.cpf || ""} 
+                                        onChange={(e) => e.target.value = mascaraCPF(e.target.value)}
+                                        placeholder="000.000.000-00" 
+                                        className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100" 
+                                    />
+                                </div>
+
                                 <div>
                                     <label className="block text-sm font-semibold text-slate-700 mb-2">Data Nasc. (D.N.)</label>
                                     <input type="date" name="dataNascimento" defaultValue={jovemSelecionado?.dataNascimento || ""} required className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100" />
@@ -375,7 +406,6 @@ export default function Dashboard() {
                         </form>
                     </div>
 
-                    {/* Rodapé Dinâmico */}
                     <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-3 bg-slate-50 rounded-b-2xl shrink-0">
                         {modoModal === 'ver' ? (
                             <button onClick={() => setModoModal('fechado')} className="px-5 py-2.5 rounded-xl font-bold text-white bg-slate-600 hover:bg-slate-700 transition-colors">Fechar Ficha</button>
