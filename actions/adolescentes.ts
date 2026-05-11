@@ -19,7 +19,8 @@ export async function salvarAdolescente(dadosFormulario: any) {
   try {
     await db.insert(adolescentes).values({
       nomeCompleto: dadosFormulario.nomeCompleto,
-      cpf: dadosFormulario.cpf, // <-- ENVIANDO CPF PARA O BANCO
+      cpf: dadosFormulario.cpf, 
+      foto: dadosFormulario.foto, // <-- SALVANDO A FOTO AQUI
       dataApreensao: dadosFormulario.dataApreensao,
       dataAdmissao: dadosFormulario.dataAdmissao,
       dataNascimento: dadosFormulario.dataNascimento,
@@ -48,7 +49,8 @@ export async function atualizarAdolescente(id: number, dadosFormulario: any) {
     try {
       await db.update(adolescentes).set({
         nomeCompleto: dadosFormulario.nomeCompleto,
-        cpf: dadosFormulario.cpf, // <-- ENVIANDO CPF NA ATUALIZAÇÃO
+        cpf: dadosFormulario.cpf, 
+        foto: dadosFormulario.foto, // <-- ATUALIZANDO A FOTO AQUI
         dataApreensao: dadosFormulario.dataApreensao,
         dataAdmissao: dadosFormulario.dataAdmissao,
         dataNascimento: dadosFormulario.dataNascimento,

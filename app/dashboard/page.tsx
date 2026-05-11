@@ -51,6 +51,9 @@ export default function Dashboard() {
   
   const [usuarioNome, setUsuarioNome] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
+  
+  // === NOVO ESTADO PARA A FOTO ===
+  const [fotoBase64, setFotoBase64] = useState<string | null>(null);
 
   const carregarDados = async () => {
     setCarregando(true);
@@ -77,7 +80,21 @@ export default function Dashboard() {
 
   const abrirModal = (modo: 'novo' | 'ver' | 'editar', jovem: any = null) => {
     setJovemSelecionado(jovem);
+    // Se estiver editando ou vendo, carrega a foto do banco. Se for novo, limpa.
+    setFotoBase64(jovem?.foto || null); 
     setModoModal(modo);
+  };
+
+  // === FUNÇÃO PARA LER A FOTO DO COMPUTADOR E TRANSFORMAR EM TEXTO (BASE64) ===
+  const handleFotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setFotoBase64(reader.result as string); // Salva a imagem como texto
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   const handleExcluir = async (id: number) => {
@@ -94,6 +111,9 @@ export default function Dashboard() {
 
     const formData = new FormData(e.currentTarget);
     const dadosFormulario = Object.fromEntries(formData.entries());
+    
+    // === INJETANDO A FOTO NOS DADOS ANTES DE SALVAR ===
+    dadosFormulario.foto = fotoBase64; 
 
     let resultado;
     if (modoModal === 'editar' && jovemSelecionado) {
@@ -116,6 +136,7 @@ export default function Dashboard() {
       window.location.href = '/';
   }
 
+  // (Funções de exportação Excel, PDF e Zap mantidas inalteradas)
   const exportarParaPDF = () => {
     if (dadosFiltrados.length === 0) return alert("Sem dados para exportar.");
     const doc = new jsPDF('landscape'); 
@@ -153,7 +174,6 @@ export default function Dashboard() {
       let linhaAtual = 3;
       dadosFiltrados.forEach((jovem, index) => {
         const row = worksheet.getRow(linhaAtual);
-        
         row.getCell(1).value = index + 1; 
         row.getCell(2).value = jovem.nomeCompleto || ""; 
         row.getCell(3).value = jovem.cpf || ""; 
@@ -170,7 +190,6 @@ export default function Dashboard() {
         row.getCell(14).value = jovem.situacaoMedida || ""; 
         row.getCell(15).value = formatarData(jovem.dataSaida); 
         row.getCell(16).value = jovem.destino || "";
-        
         row.commit(); linhaAtual++;
       });
       const buffer = await workbook.xlsx.writeBuffer();
@@ -315,28 +334,53 @@ export default function Dashboard() {
                                 
                                 <div className="col-span-full"><h4 className="text-sm font-bold text-blue-600 uppercase tracking-wider mb-2 border-b border-slate-100 pb-2">Identificação</h4></div>
                                 
-                                <div className="col-span-1 md:col-span-2">
-                                    <label className="block text-sm font-semibold text-slate-700 mb-2">Nome (NOME)</label>
-                                    <input type="text" name="nomeCompleto" defaultValue={jovemSelecionado?.nomeCompleto || ""} required className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100" />
-                                </div>
-                                
-                                <div>
-                                    <label className="block text-sm font-semibold text-slate-700 mb-2">CPF do Adolescente</label>
-                                    <input 
-                                        type="text" 
-                                        name="cpf" 
-                                        maxLength={14}
-                                        defaultValue={jovemSelecionado?.cpf || ""} 
-                                        onChange={(e) => e.target.value = mascaraCPF(e.target.value)}
-                                        placeholder="000.000.000-00" 
-                                        className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100" 
-                                    />
-                                </div>
+                                {/* === BLOCO DA FOTO E CAMPOS PRINCIPAIS === */}
+                                <div className="col-span-full flex flex-col md:flex-row gap-6 mb-2 items-start">
+                                    
+                                    {/* Caixinha da Foto 3x4 */}
+                                    <div className="flex flex-col items-center gap-3 w-full md:w-32 shrink-0">
+                                        <div className="w-32 aspect-[3/4] overflow-hidden rounded-md border border-slate-300 bg-slate-100 shadow-sm">
+                                            {fotoBase64 ? (
+                                                <img src={fotoBase64} alt="Foto" className="w-full h-full object-cover" />
+                                            ) : (
+                                                <div className="flex flex-col items-center justify-center w-full h-full text-slate-400 text-sm font-medium">
+                                                    📷 Sem Foto
+                                                </div>
+                                            )}
+                                        </div>
+                                        {/* Botão de escolher foto (escondido se for modo 'ver') */}
+                                        {modoModal !== 'ver' && (
+                                            <label className="cursor-pointer bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold py-2 px-3 rounded-lg transition-colors text-center w-full shadow-sm">
+                                                {fotoBase64 ? 'Trocar Foto' : 'Escolher Foto'}
+                                                <input type="file" accept="image/*" className="hidden" onChange={handleFotoChange} />
+                                            </label>
+                                        )}
+                                        {/* Botão de remover foto */}
+                                        {modoModal !== 'ver' && fotoBase64 && (
+                                            <button type="button" onClick={() => setFotoBase64(null)} className="text-red-500 text-xs font-bold hover:underline">
+                                                Remover
+                                            </button>
+                                        )}
+                                    </div>
 
-                                <div>
-                                    <label className="block text-sm font-semibold text-slate-700 mb-2">Data Nasc. (D.N.)</label>
-                                    <input type="date" name="dataNascimento" defaultValue={jovemSelecionado?.dataNascimento || ""} required className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100" />
+                                    {/* Campos de Nome, CPF e Data de Nascimento ficam ao lado da foto em telas maiores */}
+                                    <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-6 w-full">
+                                        <div className="col-span-1 md:col-span-2">
+                                            <label className="block text-sm font-semibold text-slate-700 mb-2">Nome (NOME)</label>
+                                            <input type="text" name="nomeCompleto" defaultValue={jovemSelecionado?.nomeCompleto || ""} required className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-semibold text-slate-700 mb-2">CPF do Adolescente</label>
+                                            <input type="text" name="cpf" maxLength={14} defaultValue={jovemSelecionado?.cpf || ""} onChange={(e) => e.target.value = mascaraCPF(e.target.value)} placeholder="000.000.000-00" className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-semibold text-slate-700 mb-2">Data Nasc. (D.N.)</label>
+                                            <input type="date" name="dataNascimento" defaultValue={jovemSelecionado?.dataNascimento || ""} required className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100" />
+                                        </div>
+                                    </div>
                                 </div>
+                                {/* === FIM DO BLOCO DA FOTO === */}
+
                                 <div className="col-span-1 md:col-span-2">
                                     <label className="block text-sm font-semibold text-slate-700 mb-2">Responsável (RESPONSÁVEL)</label>
                                     <input type="text" name="nomeResponsavel" defaultValue={jovemSelecionado?.nomeResponsavel || ""} className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100" />
@@ -367,7 +411,6 @@ export default function Dashboard() {
                                 </div>
                                 <div>
                                     <label className="block text-sm font-semibold text-slate-700 mb-2">Situação/Medida</label>
-                                    {/* === OPÇÕES ATUALIZADAS AQUI === */}
                                     <select name="situacaoMedida" defaultValue={jovemSelecionado?.situacaoMedida || ""} className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100">
                                         <option value="">Selecione...</option>
                                         <option value="Atendimento Inicial">Atendimento Inicial</option>

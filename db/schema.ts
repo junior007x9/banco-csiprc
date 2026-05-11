@@ -6,7 +6,8 @@ export const adolescentes = sqliteTable('adolescentes', {
   anoRegistro: integer('ano_registro').notNull(),
   
   nomeCompleto: text('nome_completo').notNull(), 
-  cpf: text('cpf'), // <-- CAMPO DE CPF ADICIONADO AQUI
+  cpf: text('cpf'), 
+  foto: text('foto'), // <-- CAMPO DE FOTO ADICIONADO AQUI
   dataApreensao: text('data_apreensao'),         
   dataAdmissao: text('data_admissao').notNull(), 
   dataNascimento: text('data_nascimento').notNull(), 
