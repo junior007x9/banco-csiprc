@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import ExcelJS from "exceljs";
-import { getAdolescentes, salvarAdolescente, atualizarAdolescente, excluirAdolescente } from "../../actions/adolescentes";
+import { getAdolescentes, salvarAdolescente, atualizarAdolescente, excluirAdolescente, importarAdolescentesCSV } from "../../actions/adolescentes";
 import { getSessao, fazerLogout } from "../../actions/auth";
 
 const calcularIdade = (dataNascimento: string) => {
@@ -94,6 +94,80 @@ export default function Dashboard() {
     }
   };
 
+  // === LÓGICA DE IMPORTAÇÃO DE ARQUIVO CSV ===
+  const handleImportarArquivoCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    // Usa windows-1252 para ler o CSV gerado no Excel sem quebrar os acentos em português
+    reader.readAsText(file, 'windows-1252');
+
+    reader.onload = async (evento) => {
+        const texto = evento.target?.result as string;
+        const delimitador = texto.includes(';') ? ';' : ',';
+        const linhas = texto.split(/\r?\n/).filter(l => l.trim() !== '');
+        
+        if (linhas.length <= 1) return alert("Arquivo CSV vazio ou sem dados válidos.");
+
+        // Formatador para converter as datas brasileiras DD/MM/YYYY do Excel para YYYY-MM-DD do Banco
+        const formatarDataCSV = (dataStr: string) => {
+            if (!dataStr) return "";
+            if (dataStr.includes('/')) {
+                const [dia, mes, ano] = dataStr.split('/');
+                if(ano && ano.length === 4) return `${ano}-${mes.padStart(2, '0')}-${dia.padStart(2, '0')}`;
+            }
+            return dataStr.includes('-') ? dataStr : "";
+        };
+
+        const listaMassa = [];
+
+        // Ignoramos a primeira linha (cabeçalho)
+        for (let i = 1; i < linhas.length; i++) {
+            // Regex que divide por vírgula ou ponto-e-vírgula ignorando os que estão dentro de aspas
+            const regexSeparador = delimitador === ';' ? /;(?=(?:(?:[^"]*"){2})*[^"]*$)/ : /,(?=(?:(?:[^"]*"){2})*[^"]*$)/;
+            const colunas = linhas[i].split(regexSeparador).map(c => c.replace(/^"|"$/g, '').trim());
+
+            // MAPEAMENTO CONFORME SUA LISTA:
+            // 0: Nome, 1: Data Nasc., 2: Responsável, 3: Parentesco, 4: Série/Ano, 5: Endereço, 6: Bairro, 7: Comarca, 
+            // 8: Ato Infracional, 9: Ano, 10: Apreensão, 11: Admissão, 12: Data Saída, 13: Destino
+            if (colunas.length >= 2 && colunas[0]) {
+                listaMassa.push({
+                    nomeCompleto: colunas[0],
+                    dataNascimento: formatarDataCSV(colunas[1]),
+                    nomeResponsavel: colunas[2] || "",
+                    parentesco: colunas[3] || "",
+                    serieAnoEscolar: colunas[4] || "",
+                    endereco: colunas[5] || "",
+                    bairro: colunas[6] || "",
+                    comarca: colunas[7] || "",
+                    atoInfracional: colunas[8] || "",
+                    anoRegistro: colunas[9] || new Date().getFullYear(),
+                    dataApreensao: formatarDataCSV(colunas[10]),
+                    dataAdmissao: formatarDataCSV(colunas[11]),
+                    dataSaida: formatarDataCSV(colunas[12]),
+                    destino: colunas[13] || "",
+                });
+            }
+        }
+
+        if (confirm(`Foram identificados ${listaMassa.length} registros no CSV. Tem certeza que deseja importar todos para o banco?`)) {
+            setCarregando(true);
+            const resultado = await importarAdolescentesCSV(listaMassa);
+            if (resultado.sucesso) {
+                alert("Sucesso! Todos os registros foram importados e salvos em CAIXA ALTA.");
+                carregarDados();
+            } else {
+                alert("Erro durante a importação: " + resultado.erro);
+            }
+            setCarregando(false);
+        }
+        
+        // Limpa o input file para permitir importar novamente
+        e.target.value = "";
+    };
+  };
+
   const handleExcluir = async (id: number) => {
     if (confirm("ATENÇÃO: Tem certeza que deseja excluir permanentemente este adolescente do banco de dados?")) {
       const res = await excluirAdolescente(id);
@@ -102,7 +176,6 @@ export default function Dashboard() {
     }
   };
 
-  // === CÓDIGO CORRIGIDO PARA RESOLVER O ERRO DO TYPESCRIPT / VERCEL ===
   const handleSalvar = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setSalvando(true);
@@ -146,15 +219,15 @@ export default function Dashboard() {
 
     const tableData = dadosFiltrados.map((jovem, index) => [
       index + 1, jovem.nomeCompleto || "", jovem.cpf || "", formatarData(jovem.dataApreensao), formatarData(jovem.dataAdmissao),
-      formatarData(jovem.dataNascimento), calcularIdade(jovem.dataNascimento), jovem.nomeResponsavel || "",
+      formatarData(jovem.dataNascimento), calcularIdade(jovem.dataNascimento), jovem.nomeResponsavel || "", jovem.parentesco || "",
       jovem.endereco || "", jovem.bairro || "", jovem.comarca || "", jovem.atoInfracional || "",
       jovem.serieAnoEscolar || "", jovem.situacaoMedida || "", formatarData(jovem.dataSaida), jovem.destino || ""
     ]);
 
     autoTable(doc, {
       startY: 35,
-      head: [['Nº', 'NOME', 'CPF', 'DATA APREENSÃO', 'DATA ADMISSÃO', 'D.N.', 'IDADE', 'RESPONSÁVEL', 'ENDEREÇO', 'BAIRRO', 'COMARCA', 'ATO INFRACIONAL', 'SÉRIE/ ANO', 'SITUAÇÃO/ MEDIDA', 'DATA SAÍDA', 'DESTINO']],
-      body: tableData, theme: 'grid', headStyles: { fillColor: [37, 99, 235], fontSize: 6 }, styles: { fontSize: 6, cellPadding: 1 }, 
+      head: [['Nº', 'NOME', 'CPF', 'APREENSÃO', 'ADMISSÃO', 'D.N.', 'IDADE', 'RESPONSÁVEL', 'PARENTESCO', 'ENDEREÇO', 'BAIRRO', 'COMARCA', 'ATO INFRACIONAL', 'SÉRIE/ ANO', 'MEDIDA', 'DATA SAÍDA', 'DESTINO']],
+      body: tableData, theme: 'grid', headStyles: { fillColor: [37, 99, 235], fontSize: 5 }, styles: { fontSize: 5, cellPadding: 1 }, 
     });
     doc.save(`relatorio_csiprc_${anoFiltro}.pdf`);
   };
@@ -181,14 +254,16 @@ export default function Dashboard() {
         row.getCell(6).value = formatarData(jovem.dataNascimento); 
         row.getCell(7).value = calcularIdade(jovem.dataNascimento);
         row.getCell(8).value = jovem.nomeResponsavel || ""; 
-        row.getCell(9).value = jovem.endereco || ""; 
-        row.getCell(10).value = jovem.bairro || "";
-        row.getCell(11).value = jovem.comarca || ""; 
-        row.getCell(12).value = jovem.atoInfracional || ""; 
-        row.getCell(13).value = jovem.serieAnoEscolar || "";
-        row.getCell(14).value = jovem.situacaoMedida || ""; 
-        row.getCell(15).value = formatarData(jovem.dataSaida); 
-        row.getCell(16).value = jovem.destino || "";
+        // Adicionando parentesco no excel se você tiver criado a coluna na planilha (pode ficar na 9, deslocando as outras)
+        row.getCell(9).value = jovem.parentesco || "";
+        row.getCell(10).value = jovem.endereco || ""; 
+        row.getCell(11).value = jovem.bairro || "";
+        row.getCell(12).value = jovem.comarca || ""; 
+        row.getCell(13).value = jovem.atoInfracional || ""; 
+        row.getCell(14).value = jovem.serieAnoEscolar || "";
+        row.getCell(15).value = jovem.situacaoMedida || ""; 
+        row.getCell(16).value = formatarData(jovem.dataSaida); 
+        row.getCell(17).value = jovem.destino || "";
         row.commit(); linhaAtual++;
       });
       const buffer = await workbook.xlsx.writeBuffer();
@@ -240,6 +315,13 @@ export default function Dashboard() {
                     <button onClick={exportarParaPDF} className="flex items-center justify-center gap-2 bg-red-50 text-red-600 px-4 py-2.5 rounded-xl font-bold border border-red-200 hover:bg-red-100 transition-all shadow-sm">📄 <span className="hidden sm:inline">PDF</span></button>
                     <button onClick={exportarParaExcel} disabled={exportandoExcel} className="flex items-center justify-center gap-2 bg-green-50 text-green-700 px-4 py-2.5 rounded-xl font-bold border border-green-200 hover:bg-green-100 transition-all shadow-sm disabled:opacity-50">📊 <span className="hidden sm:inline">{exportandoExcel ? "Gerando..." : "Excel"}</span></button>
                     <button onClick={compartilharWhatsApp} className="flex items-center justify-center gap-2 bg-emerald-50 text-emerald-600 px-4 py-2.5 rounded-xl font-bold border border-emerald-200 hover:bg-emerald-100 transition-all shadow-sm">💬 <span className="hidden sm:inline">WhatsApp</span></button>
+                    
+                    {/* === BOTÃO DE IMPORTAR CSV === */}
+                    <label className="flex items-center justify-center gap-2 bg-purple-600 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg shadow-purple-500/30 hover:bg-purple-700 hover:-translate-y-0.5 transition-all w-full sm:w-auto mt-2 sm:mt-0 cursor-pointer">
+                        📥 Importar CSV
+                        <input type="file" accept=".csv" className="hidden" onChange={handleImportarArquivoCSV} />
+                    </label>
+
                     <button onClick={() => abrirModal('novo')} className="flex items-center justify-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg shadow-blue-500/30 hover:bg-blue-700 hover:-translate-y-0.5 transition-all w-full sm:w-auto mt-2 sm:mt-0">+ Novo Registro</button>
                 </div>
             </div>
@@ -288,7 +370,7 @@ export default function Dashboard() {
                                           <span className="bg-slate-100 text-slate-800 px-3 py-1 rounded-lg font-bold border border-slate-200">{calcularIdade(jovem.dataNascimento)} anos</span>
                                       </td>
                                       <td className="p-4 text-slate-600 text-sm">
-                                          <span className={`px-3 py-1 rounded-lg font-bold text-xs border ${jovem.situacaoMedida?.includes('Provisória') ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
+                                          <span className={`px-3 py-1 rounded-lg font-bold text-xs border ${jovem.situacaoMedida?.includes('PROVISÓRIA') ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
                                               {jovem.situacaoMedida}
                                           </span>
                                       </td>
@@ -320,8 +402,8 @@ export default function Dashboard() {
                           <h3 className="text-xl font-bold text-slate-800">
                              {modoModal === 'novo' ? "Novo Registro" : modoModal === 'editar' ? "Editar Adolescente" : "Ficha Completa"}
                           </h3>
-                          <p className="text-xs text-slate-500 mt-1">
-                             {modoModal === 'ver' ? "Apenas leitura de dados." : "Preencha os dados conforme a planilha oficial."}
+                          <p className="text-xs text-slate-500 mt-1 uppercase">
+                             {modoModal === 'ver' ? "Apenas leitura de dados." : "Preencha os dados (o sistema salvará em caixa alta)."}
                           </p>
                         </div>
                         <button onClick={() => setModoModal('fechado')} className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-red-100 hover:text-red-600 transition-colors font-bold">✕</button>
@@ -360,7 +442,7 @@ export default function Dashboard() {
                                     <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-6 w-full">
                                         <div className="col-span-1 md:col-span-2">
                                             <label className="block text-sm font-semibold text-slate-700 mb-2">Nome (NOME)</label>
-                                            <input type="text" name="nomeCompleto" defaultValue={jovemSelecionado?.nomeCompleto || ""} required className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100" />
+                                            <input type="text" style={{ textTransform: 'uppercase' }} name="nomeCompleto" defaultValue={jovemSelecionado?.nomeCompleto || ""} required className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100" />
                                         </div>
                                         <div>
                                             <label className="block text-sm font-semibold text-slate-700 mb-2">CPF do Adolescente</label>
@@ -374,40 +456,47 @@ export default function Dashboard() {
                                 </div>
 
                                 <div className="col-span-1 md:col-span-2">
-                                    <label className="block text-sm font-semibold text-slate-700 mb-2">Responsável (RESPONSÁVEL)</label>
-                                    <input type="text" name="nomeResponsavel" defaultValue={jovemSelecionado?.nomeResponsavel || ""} className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100" />
+                                    <label className="block text-sm font-semibold text-slate-700 mb-2">Responsável</label>
+                                    <input type="text" style={{ textTransform: 'uppercase' }} name="nomeResponsavel" defaultValue={jovemSelecionado?.nomeResponsavel || ""} className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100" />
                                 </div>
+
+                                {/* === NOVO CAMPO DE PARENTESCO NO FORMULÁRIO === */}
+                                <div>
+                                    <label className="block text-sm font-semibold text-slate-700 mb-2">Parentesco</label>
+                                    <input type="text" style={{ textTransform: 'uppercase' }} name="parentesco" placeholder="EX: MÃE, PAI, AVÓ..." defaultValue={jovemSelecionado?.parentesco || ""} className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100" />
+                                </div>
+
                                 <div>
                                     <label className="block text-sm font-semibold text-slate-700 mb-2">Série/Ano (SÉRIE/ ANO)</label>
-                                    <input type="text" name="serieAnoEscolar" defaultValue={jovemSelecionado?.serieAnoEscolar || ""} className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100" />
+                                    <input type="text" style={{ textTransform: 'uppercase' }} name="serieAnoEscolar" defaultValue={jovemSelecionado?.serieAnoEscolar || ""} className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100" />
                                 </div>
 
                                 <div className="col-span-full mt-2"><h4 className="text-sm font-bold text-blue-600 uppercase tracking-wider mb-2 border-b border-slate-100 pb-2">Localização</h4></div>
                                 <div className="col-span-1 md:col-span-2">
                                     <label className="block text-sm font-semibold text-slate-700 mb-2">Endereço (ENDEREÇO)</label>
-                                    <input type="text" name="endereco" defaultValue={jovemSelecionado?.endereco || ""} className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100" />
+                                    <input type="text" style={{ textTransform: 'uppercase' }} name="endereco" defaultValue={jovemSelecionado?.endereco || ""} className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100" />
                                 </div>
                                 <div>
                                     <label className="block text-sm font-semibold text-slate-700 mb-2">Bairro (BAIRRO)</label>
-                                    <input type="text" name="bairro" defaultValue={jovemSelecionado?.bairro || ""} className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100" />
+                                    <input type="text" style={{ textTransform: 'uppercase' }} name="bairro" defaultValue={jovemSelecionado?.bairro || ""} className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100" />
                                 </div>
                                 <div className="col-span-1 md:col-span-3">
                                     <label className="block text-sm font-semibold text-slate-700 mb-2">Comarca (COMARCA)</label>
-                                    <input type="text" name="comarca" defaultValue={jovemSelecionado?.comarca || ""} className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100" />
+                                    <input type="text" style={{ textTransform: 'uppercase' }} name="comarca" defaultValue={jovemSelecionado?.comarca || ""} className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100" />
                                 </div>
 
                                 <div className="col-span-full mt-2"><h4 className="text-sm font-bold text-blue-600 uppercase tracking-wider mb-2 border-b border-slate-100 pb-2">Processo e Medida</h4></div>
                                 <div>
                                     <label className="block text-sm font-semibold text-slate-700 mb-2">Ato Infracional</label>
-                                    <input type="text" name="atoInfracional" defaultValue={jovemSelecionado?.atoInfracional || ""} className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100" />
+                                    <input type="text" style={{ textTransform: 'uppercase' }} name="atoInfracional" defaultValue={jovemSelecionado?.atoInfracional || ""} className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100" />
                                 </div>
                                 <div>
                                     <label className="block text-sm font-semibold text-slate-700 mb-2">Situação/Medida</label>
                                     <select name="situacaoMedida" defaultValue={jovemSelecionado?.situacaoMedida || ""} className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100">
-                                        <option value="">Selecione...</option>
-                                        <option value="Atendimento Inicial">Atendimento Inicial</option>
-                                        <option value="Internação Provisória">Internação Provisória</option>
-                                        <option value="Atendimento Inicial e Internação Provisória">Atendimento Inicial e Internação Provisória</option>
+                                        <option value="">SELECIONE...</option>
+                                        <option value="ATENDIMENTO INICIAL">ATENDIMENTO INICIAL</option>
+                                        <option value="INTERNAÇÃO PROVISÓRIA">INTERNAÇÃO PROVISÓRIA</option>
+                                        <option value="ATENDIMENTO INICIAL E INTERNAÇÃO PROVISÓRIA">ATENDIMENTO INICIAL E INTERNAÇÃO PROVISÓRIA</option>
                                     </select>
                                 </div>
                                 <div>
@@ -430,7 +519,7 @@ export default function Dashboard() {
                                 </div>
                                 <div className="col-span-1 md:col-span-3">
                                     <label className="block text-sm font-semibold text-slate-700 mb-2">Destino</label>
-                                    <input type="text" name="destino" defaultValue={jovemSelecionado?.destino || ""} className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100" />
+                                    <input type="text" style={{ textTransform: 'uppercase' }} name="destino" defaultValue={jovemSelecionado?.destino || ""} className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100" />
                                 </div>
 
                             </fieldset>

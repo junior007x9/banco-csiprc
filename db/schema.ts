@@ -7,11 +7,12 @@ export const adolescentes = sqliteTable('adolescentes', {
   
   nomeCompleto: text('nome_completo').notNull(), 
   cpf: text('cpf'), 
-  foto: text('foto'), // <-- CAMPO DE FOTO ADICIONADO AQUI
+  foto: text('foto'),
   dataApreensao: text('data_apreensao'),         
   dataAdmissao: text('data_admissao').notNull(), 
   dataNascimento: text('data_nascimento').notNull(), 
-  nomeResponsavel: text('nome_responsavel'),     
+  nomeResponsavel: text('nome_responsavel'),  
+  parentesco: text('parentesco'), // <-- NOVO CAMPO DE PARENTESCO AQUI
   endereco: text('endereco'),                    
   bairro: text('bairro'),                        
   comarca: text('comarca'),                      

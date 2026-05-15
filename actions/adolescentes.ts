@@ -5,6 +5,9 @@ import { adolescentes } from "../db/schema";
 import { eq } from "drizzle-orm"; 
 import { revalidatePath } from "next/cache";
 
+// === FUNÇÃO AUXILIAR PARA FORÇAR CAIXA ALTA ===
+const caixaAlta = (texto: any) => texto ? String(texto).toUpperCase().trim() : "";
+
 export async function getAdolescentes() {
   try {
     const dados = await db.select().from(adolescentes);
@@ -18,21 +21,22 @@ export async function getAdolescentes() {
 export async function salvarAdolescente(dadosFormulario: any) {
   try {
     await db.insert(adolescentes).values({
-      nomeCompleto: dadosFormulario.nomeCompleto,
-      cpf: dadosFormulario.cpf, 
-      foto: dadosFormulario.foto, // <-- SALVANDO A FOTO AQUI
+      nomeCompleto: caixaAlta(dadosFormulario.nomeCompleto),
+      cpf: dadosFormulario.cpf, // Máscara não precisa de caixa alta
+      foto: dadosFormulario.foto, 
       dataApreensao: dadosFormulario.dataApreensao,
       dataAdmissao: dadosFormulario.dataAdmissao,
       dataNascimento: dadosFormulario.dataNascimento,
-      nomeResponsavel: dadosFormulario.nomeResponsavel,
-      endereco: dadosFormulario.endereco,
-      bairro: dadosFormulario.bairro,
-      comarca: dadosFormulario.comarca,
-      atoInfracional: dadosFormulario.atoInfracional,
-      serieAnoEscolar: dadosFormulario.serieAnoEscolar,
-      situacaoMedida: dadosFormulario.situacaoMedida,
+      nomeResponsavel: caixaAlta(dadosFormulario.nomeResponsavel),
+      parentesco: caixaAlta(dadosFormulario.parentesco), // Salva o Parentesco
+      endereco: caixaAlta(dadosFormulario.endereco),
+      bairro: caixaAlta(dadosFormulario.bairro),
+      comarca: caixaAlta(dadosFormulario.comarca),
+      atoInfracional: caixaAlta(dadosFormulario.atoInfracional),
+      serieAnoEscolar: caixaAlta(dadosFormulario.serieAnoEscolar),
+      situacaoMedida: caixaAlta(dadosFormulario.situacaoMedida),
       dataSaida: dadosFormulario.dataSaida, 
-      destino: dadosFormulario.destino,     
+      destino: caixaAlta(dadosFormulario.destino),     
       anoRegistro: Number(dadosFormulario.anoRegistro),
       criadoEm: new Date().toISOString(),
     });
@@ -48,21 +52,22 @@ export async function salvarAdolescente(dadosFormulario: any) {
 export async function atualizarAdolescente(id: number, dadosFormulario: any) {
     try {
       await db.update(adolescentes).set({
-        nomeCompleto: dadosFormulario.nomeCompleto,
+        nomeCompleto: caixaAlta(dadosFormulario.nomeCompleto),
         cpf: dadosFormulario.cpf, 
-        foto: dadosFormulario.foto, // <-- ATUALIZANDO A FOTO AQUI
+        foto: dadosFormulario.foto, 
         dataApreensao: dadosFormulario.dataApreensao,
         dataAdmissao: dadosFormulario.dataAdmissao,
         dataNascimento: dadosFormulario.dataNascimento,
-        nomeResponsavel: dadosFormulario.nomeResponsavel,
-        endereco: dadosFormulario.endereco,
-        bairro: dadosFormulario.bairro,
-        comarca: dadosFormulario.comarca,
-        atoInfracional: dadosFormulario.atoInfracional,
-        serieAnoEscolar: dadosFormulario.serieAnoEscolar,
-        situacaoMedida: dadosFormulario.situacaoMedida,
+        nomeResponsavel: caixaAlta(dadosFormulario.nomeResponsavel),
+        parentesco: caixaAlta(dadosFormulario.parentesco),
+        endereco: caixaAlta(dadosFormulario.endereco),
+        bairro: caixaAlta(dadosFormulario.bairro),
+        comarca: caixaAlta(dadosFormulario.comarca),
+        atoInfracional: caixaAlta(dadosFormulario.atoInfracional),
+        serieAnoEscolar: caixaAlta(dadosFormulario.serieAnoEscolar),
+        situacaoMedida: caixaAlta(dadosFormulario.situacaoMedida),
         dataSaida: dadosFormulario.dataSaida, 
-        destino: dadosFormulario.destino,     
+        destino: caixaAlta(dadosFormulario.destino),     
         anoRegistro: Number(dadosFormulario.anoRegistro),
       }).where(eq(adolescentes.id, id));
   
@@ -82,5 +87,40 @@ export async function excluirAdolescente(id: number) {
     } catch (error) {
       console.error("Erro ao excluir:", error);
       return { sucesso: false, erro: "Falha ao excluir no banco de dados." };
+    }
+}
+
+// === NOVA FUNÇÃO: IMPORTAÇÃO EM MASSA ===
+export async function importarAdolescentesCSV(listaAdolescentes: any[]) {
+    try {
+        const dadosFormatados = listaAdolescentes.map(dadosFormulario => ({
+            nomeCompleto: caixaAlta(dadosFormulario.nomeCompleto),
+            cpf: "",
+            foto: null,
+            dataApreensao: dadosFormulario.dataApreensao || null,
+            dataAdmissao: dadosFormulario.dataAdmissao || new Date().toISOString().split('T')[0], // Obrigatório
+            dataNascimento: dadosFormulario.dataNascimento || '2000-01-01', // Obrigatório
+            nomeResponsavel: caixaAlta(dadosFormulario.nomeResponsavel),
+            parentesco: caixaAlta(dadosFormulario.parentesco),
+            endereco: caixaAlta(dadosFormulario.endereco),
+            bairro: caixaAlta(dadosFormulario.bairro),
+            comarca: caixaAlta(dadosFormulario.comarca),
+            atoInfracional: caixaAlta(dadosFormulario.atoInfracional),
+            serieAnoEscolar: caixaAlta(dadosFormulario.serieAnoEscolar),
+            situacaoMedida: caixaAlta(dadosFormulario.situacaoMedida || ""),
+            dataSaida: dadosFormulario.dataSaida || null, 
+            destino: caixaAlta(dadosFormulario.destino),     
+            anoRegistro: Number(dadosFormulario.anoRegistro) || new Date().getFullYear(),
+            criadoEm: new Date().toISOString(),
+        }));
+
+        // Insere todos de uma vez
+        await db.insert(adolescentes).values(dadosFormatados);
+        
+        revalidatePath("/dashboard"); 
+        return { sucesso: true };
+    } catch (error) {
+        console.error("Erro na importação em massa:", error);
+        return { sucesso: false, erro: "Falha ao importar registros no banco de dados." };
     }
 }
