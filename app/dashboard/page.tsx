@@ -4,8 +4,11 @@ import { useState, useEffect } from "react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import ExcelJS from "exceljs";
+import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
 import { getAdolescentes, salvarAdolescente, atualizarAdolescente, excluirAdolescente, importarAdolescentesCSV } from "../../actions/adolescentes";
 import { getSessao, fazerLogout } from "../../actions/auth";
+
+const CORES_GRAFICO = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 
 const calcularIdade = (dataNascimento: string) => {
   if (!dataNascimento) return 0;
@@ -87,7 +90,6 @@ export default function Dashboard() {
     const matchComarca = comarcaFiltro === "Todas" || jovem.comarca === comarcaFiltro;
     const matchAto = atoFiltro === "Todos" || jovem.atoInfracional === atoFiltro;
     
-    // Filtro por Período de Admissão
     let matchPeriodo = true;
     if (dataInicio || dataFim) {
         if (!jovem.dataAdmissao) {
@@ -95,7 +97,6 @@ export default function Dashboard() {
         } else {
             const dataAdmissao = new Date(jovem.dataAdmissao);
             if (dataInicio && dataAdmissao < new Date(dataInicio)) matchPeriodo = false;
-            // Para incluir até o último minuto do dia final
             if (dataFim && dataAdmissao > new Date(dataFim + 'T23:59:59')) matchPeriodo = false;
         }
     }
@@ -103,7 +104,7 @@ export default function Dashboard() {
     return (matchNome || matchCpf) && matchAno && matchComarca && matchAto && matchPeriodo;
   });
 
-  // === CÁLCULO DE ESTATÍSTICAS ===
+  // === CÁLCULO DE ESTATÍSTICAS E GRÁFICOS ===
   const totalFiltrado = dadosFiltrados.length;
   
   const contagemPorAno = dadosFiltrados.reduce((acc, j) => {
@@ -112,19 +113,28 @@ export default function Dashboard() {
       return acc;
   }, {} as Record<string, number>);
 
-  const contagemPorComarca = dadosFiltrados.reduce((acc, j) => {
-      const c = j.comarca || 'NÃO INFORMADA';
-      acc[c] = (acc[c] || 0) + 1;
-      return acc;
-  }, {} as Record<string, number>);
-  const topComarcas = Object.entries(contagemPorComarca).sort((a: any, b: any) => b[1] - a[1]).slice(0, 3);
+  const dadosGraficoComarca = Object.entries(
+      dadosFiltrados.reduce((acc, j) => {
+          const c = j.comarca || 'NÃO INFORMADA';
+          acc[c] = (acc[c] || 0) + 1; return acc;
+      }, {} as Record<string, number>)
+  ).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value).slice(0, 5);
 
-  const contagemPorAto = dadosFiltrados.reduce((acc, j) => {
-      const a = j.atoInfracional || 'NÃO INFORMADO';
-      acc[a] = (acc[a] || 0) + 1;
-      return acc;
-  }, {} as Record<string, number>);
-  const topAtos = Object.entries(contagemPorAto).sort((a: any, b: any) => b[1] - a[1]).slice(0, 3);
+  const dadosGraficoAto = Object.entries(
+      dadosFiltrados.reduce((acc, j) => {
+          const a = j.atoInfracional || 'NÃO INFORMADO';
+          acc[a] = (acc[a] || 0) + 1; return acc;
+      }, {} as Record<string, number>)
+  ).map(([name, value]) => ({ name: name.length > 20 ? name.substring(0,20)+'...' : name, value, fullName: name })).sort((a, b) => b.value - a.value).slice(0, 5);
+
+  // === SISTEMA DE ALERTAS (Prazo Vencendo) ===
+  const alertasPrazo = dadosFiltrados.filter(j => {
+      if (j.situacaoMedida?.includes('PROVISÓRIA') && !j.dataSaida && j.dataAdmissao) {
+          const dias = Math.floor((new Date().getTime() - new Date(j.dataAdmissao).getTime()) / (1000 * 3600 * 24));
+          return dias >= 40; 
+      }
+      return false;
+  });
 
   // === FUNÇÕES DO MODAL E CRUD ===
   const abrirModal = (modo: 'novo' | 'ver' | 'editar', jovem: any = null) => {
@@ -239,6 +249,53 @@ export default function Dashboard() {
   const sair = async () => { await fazerLogout(); window.location.href = '/'; }
 
   // === FUNÇÕES DE EXPORTAÇÃO ===
+  const exportarFichaIndividualPDF = () => {
+    if (!jovemSelecionado) return;
+    const doc = new jsPDF();
+    
+    doc.setFillColor(37, 99, 235);
+    doc.rect(0, 0, 210, 30, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(22);
+    doc.text("FICHA DO ADOLESCENTE", 105, 18, { align: "center" });
+    doc.setFontSize(10);
+    doc.text("Centro Socioeducativo de Internação Provisória - CSIPRC", 105, 25, { align: "center" });
+
+    doc.setTextColor(50, 50, 50);
+    doc.setFontSize(12);
+
+    if (jovemSelecionado.foto) {
+        doc.addImage(jovemSelecionado.foto, 'JPEG', 150, 40, 40, 53);
+    } else {
+        doc.setDrawColor(200); doc.rect(150, 40, 40, 53); doc.text("Sem Foto", 170, 68, { align: "center" });
+    }
+
+    doc.setFont('', 'bold'); doc.text("IDENTIFICAÇÃO", 14, 45);
+    doc.setFont('', 'normal');
+    doc.text(`Nome: ${jovemSelecionado.nomeCompleto}`, 14, 55);
+    doc.text(`CPF: ${jovemSelecionado.cpf || 'Não informado'}`, 14, 62);
+    doc.text(`Data de Nascimento: ${formatarData(jovemSelecionado.dataNascimento)} (${calcularIdade(jovemSelecionado.dataNascimento)} anos)`, 14, 69);
+    doc.text(`Série/Ano Escolar: ${jovemSelecionado.serieAnoEscolar || '-'}`, 14, 76);
+    doc.text(`Responsável: ${jovemSelecionado.nomeResponsavel || '-'} (${jovemSelecionado.parentesco || '-'})`, 14, 83);
+
+    doc.setFont('', 'bold'); doc.text("LOCALIZAÇÃO", 14, 100);
+    doc.setFont('', 'normal');
+    doc.text(`Endereço: ${jovemSelecionado.endereco || '-'}`, 14, 110);
+    doc.text(`Bairro: ${jovemSelecionado.bairro || '-'}`, 14, 117);
+    doc.text(`Comarca: ${jovemSelecionado.comarca || '-'}`, 14, 124);
+
+    doc.setFont('', 'bold'); doc.text("PROCESSO E MEDIDA", 14, 140);
+    doc.setFont('', 'normal');
+    doc.text(`Ato Infracional: ${jovemSelecionado.atoInfracional || '-'}`, 14, 150);
+    doc.text(`Situação/Medida: ${jovemSelecionado.situacaoMedida || '-'}`, 14, 157);
+    doc.text(`Data de Apreensão: ${formatarData(jovemSelecionado.dataApreensao) || '-'}`, 14, 164);
+    doc.text(`Data de Admissão: ${formatarData(jovemSelecionado.dataAdmissao) || '-'}`, 14, 171);
+    doc.text(`Data de Saída: ${formatarData(jovemSelecionado.dataSaida) || '-'}`, 14, 178);
+    doc.text(`Destino: ${jovemSelecionado.destino || '-'}`, 14, 185);
+
+    doc.save(`Ficha_${jovemSelecionado.nomeCompleto.replace(/\s+/g, '_')}.pdf`);
+  };
+
   const exportarParaPDF = () => {
     if (dadosFiltrados.length === 0) return alert("Sem dados para exportar.");
     const doc = new jsPDF('landscape'); 
@@ -352,12 +409,24 @@ export default function Dashboard() {
                 </div>
             </div>
 
-            {/* === PAINEL DE ESTATÍSTICAS INTELIGENTE === */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* === ALERTAS DE PRAZO === */}
+            {alertasPrazo.length > 0 && (
+                <div className="bg-red-50 border border-red-200 p-4 rounded-2xl shadow-sm flex items-start gap-4 animate-pulse">
+                    <div className="text-red-500 text-3xl">⚠️</div>
+                    <div>
+                        <h3 className="text-red-800 font-bold">Atenção: Prazos Críticos (Acima de 40 dias)</h3>
+                        <p className="text-red-600 text-sm">Existem {alertasPrazo.length} adolescente(s) em Internação Provisória aproximando-se ou excedendo o limite de 45 dias.</p>
+                    </div>
+                </div>
+            )}
+
+            {/* === PAINEL DE ESTATÍSTICAS E GRÁFICOS === */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                
                 {/* Card Total e Por Ano */}
                 <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
                     <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Total de Registros</h3>
-                    <div className="text-3xl font-black text-blue-600 mb-4">{totalFiltrado}</div>
+                    <div className="text-4xl font-black text-blue-600 mb-4">{totalFiltrado}</div>
                     <div className="space-y-1">
                         {Object.entries(contagemPorAno).sort((a: any, b: any)=>Number(b[0])-Number(a[0])).slice(0,4).map(([ano, qtd]) => (
                             <div key={ano} className="flex justify-between text-sm text-slate-600 border-t border-slate-100 pt-1">
@@ -367,40 +436,34 @@ export default function Dashboard() {
                     </div>
                 </div>
 
-                {/* Card Comarcas */}
-                <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
-                    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Principais Comarcas</h3>
-                    {topComarcas.length > 0 ? (
-                        <div className="space-y-3">
-                            {topComarcas.map(([comarca, qtd]) => (
-                                <div key={comarca}>
-                                    <div className="flex justify-between text-sm mb-1">
-                                        <span className="font-semibold text-slate-700 truncate pr-2">{comarca}</span>
-                                        <span className="font-bold text-blue-600">{String(qtd)}</span>
-                                    </div>
-                                    <div className="w-full bg-slate-100 rounded-full h-1.5"><div className="bg-blue-500 h-1.5 rounded-full" style={{ width: `${(Number(qtd)/totalFiltrado)*100}%` }}></div></div>
-                                </div>
-                            ))}
-                        </div>
-                    ) : <div className="text-sm text-slate-400">Nenhum dado...</div>}
+                {/* Gráfico Comarcas */}
+                <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex flex-col items-center">
+                    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 w-full text-left">Top 5 Comarcas</h3>
+                    <div className="w-full h-40">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                                <Pie data={dadosGraficoComarca} cx="50%" cy="50%" innerRadius={40} outerRadius={70} dataKey="value" stroke="none">
+                                    {dadosGraficoComarca.map((_, index) => <Cell key={`cell-${index}`} fill={CORES_GRAFICO[index % CORES_GRAFICO.length]} />)}
+                                </Pie>
+                                <RechartsTooltip />
+                            </PieChart>
+                        </ResponsiveContainer>
+                    </div>
                 </div>
 
-                {/* Card Atos Infracionais */}
-                <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 lg:col-span-2">
-                    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Atos Infracionais Mais Frequentes</h3>
-                    {topAtos.length > 0 ? (
-                        <div className="space-y-3">
-                            {topAtos.map(([ato, qtd]) => (
-                                <div key={ato}>
-                                    <div className="flex justify-between text-sm mb-1">
-                                        <span className="font-semibold text-slate-700 truncate pr-2 max-w-[85%]">{ato}</span>
-                                        <span className="font-bold text-amber-500">{String(qtd)}</span>
-                                    </div>
-                                    <div className="w-full bg-slate-100 rounded-full h-1.5"><div className="bg-amber-400 h-1.5 rounded-full" style={{ width: `${(Number(qtd)/totalFiltrado)*100}%` }}></div></div>
-                                </div>
-                            ))}
-                        </div>
-                    ) : <div className="text-sm text-slate-400">Nenhum dado...</div>}
+                {/* Gráfico Atos Infracionais */}
+                <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex flex-col items-center">
+                    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 w-full text-left">Atos Infracionais</h3>
+                    <div className="w-full h-40">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={dadosGraficoAto} layout="vertical" margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+                                <XAxis type="number" hide />
+                                <YAxis dataKey="name" type="category" width={80} tick={{ fontSize: 10 }} />
+                                <RechartsTooltip />
+                                <Bar dataKey="value" fill="#f59e0b" radius={[0, 4, 4, 0]} />
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </div>
                 </div>
             </div>
 
@@ -644,7 +707,10 @@ export default function Dashboard() {
 
                     <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-3 bg-slate-50 rounded-b-2xl shrink-0">
                         {modoModal === 'ver' ? (
-                            <button onClick={() => setModoModal('fechado')} className="px-5 py-2.5 rounded-xl font-bold text-white bg-slate-600 hover:bg-slate-700 transition-colors">Fechar Ficha</button>
+                            <>
+                                <button onClick={exportarFichaIndividualPDF} className="px-5 py-2.5 rounded-xl font-bold text-white bg-red-600 hover:bg-red-700 transition-colors shadow-md shadow-red-500/30">📄 Baixar Ficha PDF</button>
+                                <button onClick={() => setModoModal('fechado')} className="px-5 py-2.5 rounded-xl font-bold text-white bg-slate-600 hover:bg-slate-700 transition-colors">Fechar</button>
+                            </>
                         ) : (
                             <>
                               <button type="button" onClick={() => setModoModal('fechado')} className="px-5 py-2.5 rounded-xl font-bold text-slate-600 hover:bg-slate-200 transition-colors">Cancelar</button>
