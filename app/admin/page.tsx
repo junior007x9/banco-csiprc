@@ -2,12 +2,14 @@
 
 import { useState, useEffect } from "react";
 import { getUsuarios, excluirUsuario, criarUsuario } from "../../actions/usuarios";
+import { zerarBancoDeDados } from "../../actions/adolescentes"; // Importando a nova função
 import { getSessao } from "../../actions/auth";
 
 export default function AdminPage() {
     const [usuarios, setUsuarios] = useState<any[]>([]);
     const [carregando, setCarregando] = useState(true);
     const [autorizado, setAutorizado] = useState(false);
+    const [zerando, setZerando] = useState(false);
     
     // Estados do formulário
     const [nome, setNome] = useState("");
@@ -57,6 +59,24 @@ export default function AdminPage() {
         }
     };
 
+    // === FUNÇÃO PARA ZERAR O BANCO COM CONFIRMAÇÃO DUPLA ===
+    const handleZerarBanco = async () => {
+        const confirmacao = prompt("⚠️ ATENÇÃO: Esta ação é IRREVERSÍVEL!\n\nPara excluir TODOS OS ADOLESCENTES cadastrados no banco de dados, digite a palavra: CONFIRMAR");
+        
+        if (confirmacao === "CONFIRMAR") {
+            setZerando(true);
+            const res = await zerarBancoDeDados();
+            if (res.sucesso) {
+                alert("Sucesso! Todos os registros de adolescentes foram apagados.");
+            } else {
+                alert("Erro ao zerar o banco: " + res.erro);
+            }
+            setZerando(false);
+        } else if (confirmacao !== null) {
+            alert("Palavra incorreta. A operação foi cancelada e nada foi apagado.");
+        }
+    };
+
     if (!autorizado) {
         return <div className="p-10 text-center font-bold text-slate-500 mt-20">A verificar permissões de administrador...</div>;
     }
@@ -69,7 +89,7 @@ export default function AdminPage() {
                 <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
                     <div>
                         <h1 className="text-2xl font-bold text-slate-800">Painel de Administração</h1>
-                        <p className="text-slate-500 text-sm">Faça a gestão dos acessos dos funcionários ao sistema CSIPRC.</p>
+                        <p className="text-slate-500 text-sm">Faça a gestão dos acessos e do banco de dados do sistema CSIPRC.</p>
                     </div>
                     <button onClick={() => window.location.href = '/dashboard'} className="px-5 py-2.5 bg-slate-200 text-slate-700 font-bold rounded-xl hover:bg-slate-300 transition-colors">
                         Voltar ao Dashboard
@@ -95,8 +115,8 @@ export default function AdminPage() {
                         <div className="md:col-span-1">
                             <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Permissão</label>
                             <select value={role} onChange={(e)=>setRole(e.target.value)} className="w-full p-2.5 border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none rounded-lg bg-slate-50 text-sm font-semibold text-slate-700">
-                                <option value="comum">COMUM (Visualizar/Editar Registos)</option>
-                                <option value="admin">ADMINISTRADOR (Acesso Total)</option>
+                                <option value="comum">COMUM (Visualizar/Editar)</option>
+                                <option value="admin">ADMINISTRADOR (Total)</option>
                             </select>
                         </div>
                         <button type="submit" className="bg-blue-600 text-white font-bold px-4 py-2.5 rounded-lg hover:bg-blue-700 transition-colors shadow-md shadow-blue-500/30">
@@ -142,6 +162,21 @@ export default function AdminPage() {
                             </tbody>
                         </table>
                     </div>
+                </div>
+
+                {/* ZONA DE PERIGO */}
+                <div className="bg-red-50 p-6 rounded-2xl shadow-sm border border-red-200 mt-12 flex flex-col md:flex-row items-center justify-between gap-4">
+                    <div>
+                        <h2 className="text-lg font-black text-red-700 mb-1">⚠️ ZONA DE PERIGO: Zerar Banco de Dados</h2>
+                        <p className="text-red-600 text-sm">Esta ação apagará <b>TODOS OS ADOLESCENTES</b> cadastrados no sistema. Os usuários administrativos serão mantidos.</p>
+                    </div>
+                    <button 
+                        onClick={handleZerarBanco} 
+                        disabled={zerando}
+                        className="bg-red-600 text-white font-bold px-6 py-3 rounded-xl hover:bg-red-700 transition-colors shadow-lg shadow-red-500/30 whitespace-nowrap disabled:opacity-50"
+                    >
+                        {zerando ? "A APAGAR TUDO..." : "APAGAR TODOS OS REGISTROS"}
+                    </button>
                 </div>
 
             </div>

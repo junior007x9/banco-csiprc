@@ -22,13 +22,13 @@ export async function salvarAdolescente(dadosFormulario: any) {
   try {
     await db.insert(adolescentes).values({
       nomeCompleto: caixaAlta(dadosFormulario.nomeCompleto),
-      cpf: dadosFormulario.cpf, // Máscara não precisa de caixa alta
+      cpf: dadosFormulario.cpf, 
       foto: dadosFormulario.foto, 
       dataApreensao: dadosFormulario.dataApreensao,
       dataAdmissao: dadosFormulario.dataAdmissao,
       dataNascimento: dadosFormulario.dataNascimento,
       nomeResponsavel: caixaAlta(dadosFormulario.nomeResponsavel),
-      parentesco: caixaAlta(dadosFormulario.parentesco), // Salva o Parentesco
+      parentesco: caixaAlta(dadosFormulario.parentesco), 
       endereco: caixaAlta(dadosFormulario.endereco),
       bairro: caixaAlta(dadosFormulario.bairro),
       comarca: caixaAlta(dadosFormulario.comarca),
@@ -90,7 +90,6 @@ export async function excluirAdolescente(id: number) {
     }
 }
 
-// === NOVA FUNÇÃO: IMPORTAÇÃO EM MASSA ===
 export async function importarAdolescentesCSV(listaAdolescentes: any[]) {
     try {
         const dadosFormatados = listaAdolescentes.map(dadosFormulario => ({
@@ -98,8 +97,8 @@ export async function importarAdolescentesCSV(listaAdolescentes: any[]) {
             cpf: "",
             foto: null,
             dataApreensao: dadosFormulario.dataApreensao || null,
-            dataAdmissao: dadosFormulario.dataAdmissao || new Date().toISOString().split('T')[0], // Obrigatório
-            dataNascimento: dadosFormulario.dataNascimento || '2000-01-01', // Obrigatório
+            dataAdmissao: dadosFormulario.dataAdmissao || new Date().toISOString().split('T')[0], 
+            dataNascimento: dadosFormulario.dataNascimento || '2000-01-01', 
             nomeResponsavel: caixaAlta(dadosFormulario.nomeResponsavel),
             parentesco: caixaAlta(dadosFormulario.parentesco),
             endereco: caixaAlta(dadosFormulario.endereco),
@@ -114,7 +113,6 @@ export async function importarAdolescentesCSV(listaAdolescentes: any[]) {
             criadoEm: new Date().toISOString(),
         }));
 
-        // Insere todos de uma vez
         await db.insert(adolescentes).values(dadosFormatados);
         
         revalidatePath("/dashboard"); 
@@ -122,5 +120,18 @@ export async function importarAdolescentesCSV(listaAdolescentes: any[]) {
     } catch (error) {
         console.error("Erro na importação em massa:", error);
         return { sucesso: false, erro: "Falha ao importar registros no banco de dados." };
+    }
+}
+
+// === NOVA FUNÇÃO: ZERAR TODO O BANCO ===
+export async function zerarBancoDeDados() {
+    try {
+        // Deleta todos os registros da tabela de adolescentes sem filtro de ID
+        await db.delete(adolescentes);
+        revalidatePath("/dashboard"); 
+        return { sucesso: true };
+    } catch (error) {
+        console.error("Erro ao zerar banco:", error);
+        return { sucesso: false, erro: "Falha ao limpar o banco de dados." };
     }
 }
