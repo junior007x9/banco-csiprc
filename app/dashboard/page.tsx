@@ -51,6 +51,9 @@ export default function Dashboard() {
   
   const [modoModal, setModoModal] = useState<'fechado' | 'novo' | 'ver' | 'editar'>('fechado');
   const [jovemSelecionado, setJovemSelecionado] = useState<any>(null);
+  
+  // === NOVO ESTADO: AVISO DE REINCIDÊNCIA ===
+  const [avisoReincidencia, setAvisoReincidencia] = useState<string | null>(null);
 
   const [dados, setDados] = useState<any[]>([]);
   const [carregando, setCarregando] = useState(true);
@@ -77,6 +80,14 @@ export default function Dashboard() {
   useEffect(() => {
     carregarDados();
   }, []);
+
+  // === CÁLCULO INTELIGENTE DE REINCIDÊNCIA ===
+  // O sistema mapeia quantas vezes um CPF ou (Nome+Nascimento) aparece no banco todo
+  const contagemPassagens = dados.reduce((acc, j) => {
+      const chave = j.cpf || `${j.nomeCompleto}-${j.dataNascimento}`;
+      acc[chave] = (acc[chave] || 0) + 1;
+      return acc;
+  }, {} as Record<string, number>);
 
   // === OPÇÕES DINÂMICAS PARA OS FILTROS ===
   const comarcasUnicas = Array.from(new Set(dados.map(d => d.comarca).filter(Boolean))).sort();
@@ -113,7 +124,6 @@ export default function Dashboard() {
       return acc;
   }, {} as Record<string, number>);
 
-  // CORREÇÃO TYPESCRIPT: (a: any, b: any) adicionado no sort
   const dadosGraficoComarca = Object.entries(
       dadosFiltrados.reduce((acc, j) => {
           const c = j.comarca || 'NÃO INFORMADA';
@@ -121,7 +131,6 @@ export default function Dashboard() {
       }, {} as Record<string, number>)
   ).map(([name, value]) => ({ name, value })).sort((a: any, b: any) => b.value - a.value).slice(0, 5);
 
-  // CORREÇÃO TYPESCRIPT: (a: any, b: any) adicionado no sort
   const dadosGraficoAto = Object.entries(
       dadosFiltrados.reduce((acc, j) => {
           const a = j.atoInfracional || 'NÃO INFORMADO';
@@ -129,7 +138,6 @@ export default function Dashboard() {
       }, {} as Record<string, number>)
   ).map(([name, value]) => ({ name: name.length > 20 ? name.substring(0,20)+'...' : name, value, fullName: name })).sort((a: any, b: any) => b.value - a.value).slice(0, 5);
 
-  // === SISTEMA DE ALERTAS (Prazo Vencendo) ===
   const alertasPrazo = dadosFiltrados.filter(j => {
       if (j.situacaoMedida?.includes('PROVISÓRIA') && !j.dataSaida && j.dataAdmissao) {
           const dias = Math.floor((new Date().getTime() - new Date(j.dataAdmissao).getTime()) / (1000 * 3600 * 24));
@@ -142,6 +150,7 @@ export default function Dashboard() {
   const abrirModal = (modo: 'novo' | 'ver' | 'editar', jovem: any = null) => {
     setJovemSelecionado(jovem);
     setFotoBase64(jovem?.foto || null); 
+    setAvisoReincidencia(null); // Reseta o aviso ao abrir a janela
     setModoModal(modo);
   };
 
@@ -544,31 +553,47 @@ export default function Dashboard() {
                             ) : dadosFiltrados.length === 0 ? (
                                 <tr><td colSpan={6} className="p-8 text-center text-slate-500">Nenhum registro encontrado para estes filtros.</td></tr>
                             ) : (
-                              dadosFiltrados.map((jovem) => (
-                                  <tr key={jovem.id} className="hover:bg-blue-50/50 transition-colors group">
-                                      <td className="p-4 font-bold text-slate-800">{jovem.nomeCompleto}</td>
-                                      <td className="p-4 text-slate-600 text-sm">{jovem.cpf || '-'}</td>
-                                      <td className="p-4 text-slate-600 text-sm">{formatarData(jovem.dataAdmissao)}</td>
-                                      <td className="p-4 text-slate-600 text-sm">
-                                          <span className="bg-slate-100 text-slate-800 px-3 py-1 rounded-lg font-bold border border-slate-200">{calcularIdade(jovem.dataNascimento)} anos</span>
-                                      </td>
-                                      <td className="p-4 text-slate-600 text-sm">
-                                          <span className={`px-3 py-1 rounded-lg font-bold text-xs border ${jovem.situacaoMedida?.includes('PROVISÓRIA') ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
-                                              {jovem.situacaoMedida}
-                                          </span>
-                                      </td>
-                                      <td className="p-4 text-right space-x-3">
-                                          <button onClick={() => abrirModal('ver', jovem)} className="text-blue-600 font-bold text-sm hover:underline">Ver Ficha</button>
-                                          
-                                          {isAdmin && (
-                                              <>
-                                                <button onClick={() => abrirModal('editar', jovem)} className="text-amber-500 font-bold text-sm hover:underline">Editar</button>
-                                                <button onClick={() => handleExcluir(jovem.id)} className="text-red-600 font-bold text-sm hover:underline">Excluir</button>
-                                              </>
-                                          )}
-                                      </td>
-                                  </tr>
-                              ))
+                              dadosFiltrados.map((jovem) => {
+                                  // CHECAGEM SE É REINCIDENTE NA TABELA
+                                  const chaveIdentificacao = jovem.cpf || `${jovem.nomeCompleto}-${jovem.dataNascimento}`;
+                                  const totalPassagens = contagemPassagens[chaveIdentificacao] || 1;
+                                  const isReincidente = totalPassagens > 1;
+
+                                  return (
+                                      <tr key={jovem.id} className="hover:bg-blue-50/50 transition-colors group">
+                                          <td className="p-4 font-bold text-slate-800">
+                                              <div className="flex items-center gap-2">
+                                                  {jovem.nomeCompleto}
+                                                  {isReincidente && (
+                                                      <span className="bg-red-100 text-red-700 text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider border border-red-200 whitespace-nowrap" title={`${totalPassagens} passagens registradas`}>
+                                                          Reincidente
+                                                      </span>
+                                                  )}
+                                              </div>
+                                          </td>
+                                          <td className="p-4 text-slate-600 text-sm">{jovem.cpf || '-'}</td>
+                                          <td className="p-4 text-slate-600 text-sm">{formatarData(jovem.dataAdmissao)}</td>
+                                          <td className="p-4 text-slate-600 text-sm">
+                                              <span className="bg-slate-100 text-slate-800 px-3 py-1 rounded-lg font-bold border border-slate-200">{calcularIdade(jovem.dataNascimento)} anos</span>
+                                          </td>
+                                          <td className="p-4 text-slate-600 text-sm">
+                                              <span className={`px-3 py-1 rounded-lg font-bold text-xs border ${jovem.situacaoMedida?.includes('PROVISÓRIA') ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
+                                                  {jovem.situacaoMedida}
+                                              </span>
+                                          </td>
+                                          <td className="p-4 text-right space-x-3">
+                                              <button onClick={() => abrirModal('ver', jovem)} className="text-blue-600 font-bold text-sm hover:underline">Ver Ficha</button>
+                                              
+                                              {isAdmin && (
+                                                  <>
+                                                    <button onClick={() => abrirModal('editar', jovem)} className="text-amber-500 font-bold text-sm hover:underline">Editar</button>
+                                                    <button onClick={() => handleExcluir(jovem.id)} className="text-red-600 font-bold text-sm hover:underline">Excluir</button>
+                                                  </>
+                                              )}
+                                          </td>
+                                      </tr>
+                                  );
+                              })
                             )}
                         </tbody>
                     </table>
@@ -592,6 +617,20 @@ export default function Dashboard() {
                         </div>
                         <button onClick={() => setModoModal('fechado')} className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-red-100 hover:text-red-600 transition-colors font-bold">✕</button>
                     </div>
+                    
+                    {/* === AVISO DE REINCIDÊNCIA AO CADASTRAR NOVO === */}
+                    {avisoReincidencia && (
+                        <div className="bg-amber-50 text-amber-800 p-3 text-sm font-bold border-b border-amber-200 flex items-center justify-center gap-2 animate-pulse">
+                            {avisoReincidencia}
+                        </div>
+                    )}
+
+                    {/* === AVISO DE REINCIDÊNCIA AO VISUALIZAR FICHA === */}
+                    {modoModal !== 'novo' && jovemSelecionado && contagemPassagens[jovemSelecionado.cpf || `${jovemSelecionado.nomeCompleto}-${jovemSelecionado.dataNascimento}`] > 1 && (
+                         <div className="bg-red-50 text-red-700 p-3 text-sm font-bold border-b border-red-100 flex items-center justify-center gap-2">
+                             ⚠️ ATENÇÃO: Este adolescente é REINCIDENTE ({contagemPassagens[jovemSelecionado.cpf || `${jovemSelecionado.nomeCompleto}-${jovemSelecionado.dataNascimento}`]} passagens registradas).
+                         </div>
+                    )}
 
                     <div className="p-6 overflow-y-auto flex-1">
                         <form id="formCadastro" key={jovemSelecionado?.id || 'novo'} onSubmit={handleSalvar}>
@@ -630,7 +669,30 @@ export default function Dashboard() {
                                         </div>
                                         <div>
                                             <label className="block text-sm font-semibold text-slate-700 mb-2">CPF do Adolescente</label>
-                                            <input type="text" name="cpf" maxLength={14} defaultValue={jovemSelecionado?.cpf || ""} onChange={(e) => e.target.value = mascaraCPF(e.target.value)} placeholder="000.000.000-00" className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100" />
+                                            <input 
+                                                type="text" 
+                                                name="cpf" 
+                                                maxLength={14} 
+                                                defaultValue={jovemSelecionado?.cpf || ""} 
+                                                onChange={(e) => {
+                                                    const mascarado = mascaraCPF(e.target.value);
+                                                    e.target.value = mascarado;
+                                                    
+                                                    // Checa reincidência ao digitar os 14 caracteres do CPF no modo 'novo'
+                                                    if (mascarado.length === 14 && modoModal === 'novo') {
+                                                        const passagens = dados.filter(d => d.cpf === mascarado).length;
+                                                        if (passagens > 0) {
+                                                            setAvisoReincidencia(`⚠️ Este CPF já possui ${passagens} passagem(ns) no sistema. Este será um registro de REINCIDÊNCIA.`);
+                                                        } else {
+                                                            setAvisoReincidencia(null);
+                                                        }
+                                                    } else if (mascarado.length < 14) {
+                                                        setAvisoReincidencia(null);
+                                                    }
+                                                }} 
+                                                placeholder="000.000.000-00" 
+                                                className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100" 
+                                            />
                                         </div>
                                         <div>
                                             <label className="block text-sm font-semibold text-slate-700 mb-2">Data Nasc. (D.N.)</label>
