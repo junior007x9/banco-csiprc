@@ -75,7 +75,7 @@ export default function Dashboard() {
     carregarDados();
   }, []);
 
-  // === OPÇÕES DINÂMICAS PARA OS FILTROS (Extraídas do banco) ===
+  // === OPÇÕES DINÂMICAS PARA OS FILTROS ===
   const comarcasUnicas = Array.from(new Set(dados.map(d => d.comarca).filter(Boolean))).sort();
   const atosUnicos = Array.from(new Set(dados.map(d => d.atoInfracional).filter(Boolean))).sort();
 
@@ -103,7 +103,7 @@ export default function Dashboard() {
     return (matchNome || matchCpf) && matchAno && matchComarca && matchAto && matchPeriodo;
   });
 
-  // === CÁLCULO DE ESTATÍSTICAS (Baseado no que está filtrado na tela) ===
+  // === CÁLCULO DE ESTATÍSTICAS ===
   const totalFiltrado = dadosFiltrados.length;
   
   const contagemPorAno = dadosFiltrados.reduce((acc, j) => {
@@ -117,14 +117,16 @@ export default function Dashboard() {
       acc[c] = (acc[c] || 0) + 1;
       return acc;
   }, {} as Record<string, number>);
-  const topComarcas = Object.entries(contagemPorComarca).sort((a,b)=>b[1]-a[1]).slice(0, 3);
+  // CORREÇÃO: Usando 'any' no sort para evitar o erro do TypeScript no build da Vercel
+  const topComarcas = Object.entries(contagemPorComarca).sort((a: any, b: any) => b[1] - a[1]).slice(0, 3);
 
   const contagemPorAto = dadosFiltrados.reduce((acc, j) => {
       const a = j.atoInfracional || 'NÃO INFORMADO';
       acc[a] = (acc[a] || 0) + 1;
       return acc;
   }, {} as Record<string, number>);
-  const topAtos = Object.entries(contagemPorAto).sort((a,b)=>b[1]-a[1]).slice(0, 3);
+  // CORREÇÃO: Usando 'any' no sort para evitar o erro do TypeScript no build da Vercel
+  const topAtos = Object.entries(contagemPorAto).sort((a: any, b: any) => b[1] - a[1]).slice(0, 3);
 
   // === FUNÇÕES DO MODAL E CRUD ===
   const abrirModal = (modo: 'novo' | 'ver' | 'editar', jovem: any = null) => {
@@ -376,9 +378,9 @@ export default function Dashboard() {
                                 <div key={comarca}>
                                     <div className="flex justify-between text-sm mb-1">
                                         <span className="font-semibold text-slate-700 truncate pr-2">{comarca}</span>
-                                        <span className="font-bold text-blue-600">{qtd}</span>
+                                        <span className="font-bold text-blue-600">{qtd as React.ReactNode}</span>
                                     </div>
-                                    <div className="w-full bg-slate-100 rounded-full h-1.5"><div className="bg-blue-500 h-1.5 rounded-full" style={{ width: `${(qtd/totalFiltrado)*100}%` }}></div></div>
+                                    <div className="w-full bg-slate-100 rounded-full h-1.5"><div className="bg-blue-500 h-1.5 rounded-full" style={{ width: `${((qtd as number)/totalFiltrado)*100}%` }}></div></div>
                                 </div>
                             ))}
                         </div>
@@ -394,9 +396,9 @@ export default function Dashboard() {
                                 <div key={ato}>
                                     <div className="flex justify-between text-sm mb-1">
                                         <span className="font-semibold text-slate-700 truncate pr-2 max-w-[85%]">{ato}</span>
-                                        <span className="font-bold text-amber-500">{qtd}</span>
+                                        <span className="font-bold text-amber-500">{qtd as React.ReactNode}</span>
                                     </div>
-                                    <div className="w-full bg-slate-100 rounded-full h-1.5"><div className="bg-amber-400 h-1.5 rounded-full" style={{ width: `${(qtd/totalFiltrado)*100}%` }}></div></div>
+                                    <div className="w-full bg-slate-100 rounded-full h-1.5"><div className="bg-amber-400 h-1.5 rounded-full" style={{ width: `${((qtd as number)/totalFiltrado)*100}%` }}></div></div>
                                 </div>
                             ))}
                         </div>
