@@ -113,19 +113,21 @@ export default function Dashboard() {
       return acc;
   }, {} as Record<string, number>);
 
+  // CORREÇÃO TYPESCRIPT: (a: any, b: any) adicionado no sort
   const dadosGraficoComarca = Object.entries(
       dadosFiltrados.reduce((acc, j) => {
           const c = j.comarca || 'NÃO INFORMADA';
           acc[c] = (acc[c] || 0) + 1; return acc;
       }, {} as Record<string, number>)
-  ).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value).slice(0, 5);
+  ).map(([name, value]) => ({ name, value })).sort((a: any, b: any) => b.value - a.value).slice(0, 5);
 
+  // CORREÇÃO TYPESCRIPT: (a: any, b: any) adicionado no sort
   const dadosGraficoAto = Object.entries(
       dadosFiltrados.reduce((acc, j) => {
           const a = j.atoInfracional || 'NÃO INFORMADO';
           acc[a] = (acc[a] || 0) + 1; return acc;
       }, {} as Record<string, number>)
-  ).map(([name, value]) => ({ name: name.length > 20 ? name.substring(0,20)+'...' : name, value, fullName: name })).sort((a, b) => b.value - a.value).slice(0, 5);
+  ).map(([name, value]) => ({ name: name.length > 20 ? name.substring(0,20)+'...' : name, value, fullName: name })).sort((a: any, b: any) => b.value - a.value).slice(0, 5);
 
   // === SISTEMA DE ALERTAS (Prazo Vencendo) ===
   const alertasPrazo = dadosFiltrados.filter(j => {
@@ -394,8 +396,8 @@ export default function Dashboard() {
             {/* === CABEÇALHO COM BOTÕES DE AÇÃO === */}
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                 <div>
-                    <h2 className="text-2xl font-bold text-slate-800">Registros e Estatísticas</h2>
-                    <p className="text-slate-500 text-sm mt-1">Gerencie e analise os dados do sistema em tempo real.</p>
+                    <h2 className="text-2xl font-bold text-slate-800">Registros e Inteligência</h2>
+                    <p className="text-slate-500 text-sm mt-1">Gerencie, analise gráficos e verifique prazos.</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
                     <button onClick={exportarParaPDF} className="flex items-center justify-center gap-2 bg-red-50 text-red-600 px-4 py-2.5 rounded-xl font-bold border border-red-200 hover:bg-red-100 transition-all shadow-sm">📄 <span className="hidden sm:inline">PDF</span></button>
