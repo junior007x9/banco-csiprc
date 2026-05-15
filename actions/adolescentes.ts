@@ -39,6 +39,10 @@ export async function salvarAdolescente(dadosFormulario: any) {
       destino: caixaAlta(dadosFormulario.destino),     
       anoRegistro: Number(dadosFormulario.anoRegistro),
       criadoEm: new Date().toISOString(),
+      
+      // === HISTÓRICO / AUDITORIA ===
+      criadoPor: dadosFormulario.usuarioEditor || 'Desconhecido', 
+      atualizadoPor: dadosFormulario.usuarioEditor || 'Desconhecido'
     });
 
     revalidatePath("/dashboard"); 
@@ -69,6 +73,9 @@ export async function atualizarAdolescente(id: number, dadosFormulario: any) {
         dataSaida: dadosFormulario.dataSaida, 
         destino: caixaAlta(dadosFormulario.destino),     
         anoRegistro: Number(dadosFormulario.anoRegistro),
+        
+        // === HISTÓRICO / AUDITORIA ===
+        atualizadoPor: dadosFormulario.usuarioEditor || 'Desconhecido'
       }).where(eq(adolescentes.id, id));
   
       revalidatePath("/dashboard"); 
@@ -90,7 +97,7 @@ export async function excluirAdolescente(id: number) {
     }
 }
 
-export async function importarAdolescentesCSV(listaAdolescentes: any[]) {
+export async function importarAdolescentesCSV(listaAdolescentes: any[], usuarioEditor: string) {
     try {
         const dadosFormatados = listaAdolescentes.map(dadosFormulario => ({
             nomeCompleto: caixaAlta(dadosFormulario.nomeCompleto),
@@ -111,6 +118,10 @@ export async function importarAdolescentesCSV(listaAdolescentes: any[]) {
             destino: caixaAlta(dadosFormulario.destino),     
             anoRegistro: Number(dadosFormulario.anoRegistro) || new Date().getFullYear(),
             criadoEm: new Date().toISOString(),
+            
+            // === HISTÓRICO / AUDITORIA ===
+            criadoPor: usuarioEditor || 'Sistema',
+            atualizadoPor: usuarioEditor || 'Sistema'
         }));
 
         await db.insert(adolescentes).values(dadosFormatados);

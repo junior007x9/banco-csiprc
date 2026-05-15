@@ -40,6 +40,23 @@ const mascaraCPF = (valor: string) => {
   return v;
 };
 
+// === 1. VALIDAÇÃO REAL DO CPF ===
+const validarCPF = (cpf: string) => {
+    cpf = cpf.replace(/[^\d]+/g,'');
+    if(cpf === '' || cpf.length !== 11 || /^(\d)\1{10}$/.test(cpf)) return false;
+    let add = 0;
+    for (let i=0; i < 9; i ++) add += parseInt(cpf.charAt(i)) * (10 - i);
+    let rev = 11 - (add % 11);
+    if (rev === 10 || rev === 11) rev = 0;
+    if (rev !== parseInt(cpf.charAt(9))) return false;
+    add = 0;
+    for (let i = 0; i < 10; i ++) add += parseInt(cpf.charAt(i)) * (11 - i);
+    rev = 11 - (add % 11);
+    if (rev === 10 || rev === 11) rev = 0;
+    if (rev !== parseInt(cpf.charAt(10))) return false;
+    return true;
+}
+
 export default function Dashboard() {
   // === ESTADOS DOS FILTROS ===
   const [busca, setBusca] = useState("");
@@ -48,11 +65,16 @@ export default function Dashboard() {
   const [atoFiltro, setAtoFiltro] = useState("Todos");
   const [dataInicio, setDataInicio] = useState("");
   const [dataFim, setDataFim] = useState("");
+  // === NOVO ESTADO: FILTRO DE STATUS (Ativos/Inativos) ===
+  const [statusFiltro, setStatusFiltro] = useState("Ativos"); 
   
+  // === NOVO ESTADO: PAGINAÇÃO ===
+  const [paginaAtual, setPaginaAtual] = useState(1);
+  const ITENS_POR_PAGINA = 15;
+
   const [modoModal, setModoModal] = useState<'fechado' | 'novo' | 'ver' | 'editar'>('fechado');
   const [jovemSelecionado, setJovemSelecionado] = useState<any>(null);
   
-  // === NOVO ESTADO: AVISO DE REINCIDÊNCIA ===
   const [avisoReincidencia, setAvisoReincidencia] = useState<string | null>(null);
 
   const [dados, setDados] = useState<any[]>([]);
@@ -81,15 +103,17 @@ export default function Dashboard() {
     carregarDados();
   }, []);
 
-  // === CÁLCULO INTELIGENTE DE REINCIDÊNCIA ===
-  // O sistema mapeia quantas vezes um CPF ou (Nome+Nascimento) aparece no banco todo
+  // Reseta a página para 1 sempre que um filtro é alterado
+  useEffect(() => { 
+      setPaginaAtual(1); 
+  }, [busca, anoFiltro, comarcaFiltro, atoFiltro, dataInicio, dataFim, statusFiltro]);
+
   const contagemPassagens = dados.reduce((acc, j) => {
       const chave = j.cpf || `${j.nomeCompleto}-${j.dataNascimento}`;
       acc[chave] = (acc[chave] || 0) + 1;
       return acc;
   }, {} as Record<string, number>);
 
-  // === OPÇÕES DINÂMICAS PARA OS FILTROS ===
   const comarcasUnicas = Array.from(new Set(dados.map(d => d.comarca).filter(Boolean))).sort();
   const atosUnicos = Array.from(new Set(dados.map(d => d.atoInfracional).filter(Boolean))).sort();
 
@@ -112,11 +136,18 @@ export default function Dashboard() {
         }
     }
 
-    return (matchNome || matchCpf) && matchAno && matchComarca && matchAto && matchPeriodo;
+    // Filtro de Status (Ativos / Inativos)
+    let matchStatus = true;
+    if (statusFiltro === "Ativos") matchStatus = !jovem.dataSaida;
+    if (statusFiltro === "Inativos") matchStatus = !!jovem.dataSaida;
+
+    return (matchNome || matchCpf) && matchAno && matchComarca && matchAto && matchPeriodo && matchStatus;
   });
 
-  // === CÁLCULO DE ESTATÍSTICAS E GRÁFICOS ===
+  // === CÁLCULO DA PAGINAÇÃO ===
   const totalFiltrado = dadosFiltrados.length;
+  const totalPaginas = Math.ceil(totalFiltrado / ITENS_POR_PAGINA);
+  const dadosPaginados = dadosFiltrados.slice((paginaAtual - 1) * ITENS_POR_PAGINA, paginaAtual * ITENS_POR_PAGINA);
   
   const contagemPorAno = dadosFiltrados.reduce((acc, j) => {
       const ano = j.anoRegistro || 'Sem Ano';
@@ -127,30 +158,23 @@ export default function Dashboard() {
   const dadosGraficoComarca = Object.entries(
       dadosFiltrados.reduce((acc, j) => {
           const c = j.comarca || 'NÃO INFORMADA';
-          acc[c] = (acc[c] || 0) + 1; return acc;
+          acc[c] = (acc[c] || 0) + 1;
+          return acc;
       }, {} as Record<string, number>)
   ).map(([name, value]) => ({ name, value })).sort((a: any, b: any) => b.value - a.value).slice(0, 5);
 
   const dadosGraficoAto = Object.entries(
       dadosFiltrados.reduce((acc, j) => {
           const a = j.atoInfracional || 'NÃO INFORMADO';
-          acc[a] = (acc[a] || 0) + 1; return acc;
+          acc[a] = (acc[a] || 0) + 1;
+          return acc;
       }, {} as Record<string, number>)
   ).map(([name, value]) => ({ name: name.length > 20 ? name.substring(0,20)+'...' : name, value, fullName: name })).sort((a: any, b: any) => b.value - a.value).slice(0, 5);
 
-  const alertasPrazo = dadosFiltrados.filter(j => {
-      if (j.situacaoMedida?.includes('PROVISÓRIA') && !j.dataSaida && j.dataAdmissao) {
-          const dias = Math.floor((new Date().getTime() - new Date(j.dataAdmissao).getTime()) / (1000 * 3600 * 24));
-          return dias >= 40; 
-      }
-      return false;
-  });
-
-  // === FUNÇÕES DO MODAL E CRUD ===
   const abrirModal = (modo: 'novo' | 'ver' | 'editar', jovem: any = null) => {
     setJovemSelecionado(jovem);
     setFotoBase64(jovem?.foto || null); 
-    setAvisoReincidencia(null); // Reseta o aviso ao abrir a janela
+    setAvisoReincidencia(null);
     setModoModal(modo);
   };
 
@@ -211,11 +235,12 @@ export default function Dashboard() {
             }
         }
 
-        if (confirm(`Foram identificados ${listaMassa.length} registros. Confirmar importação?`)) {
+        if (confirm(`Foram identificados ${listaMassa.length} registos. Confirmar importação?`)) {
             setCarregando(true);
-            const resultado = await importarAdolescentesCSV(listaMassa);
+            // Passamos o usuarioNome para registrar quem fez a importação em massa
+            const resultado = await importarAdolescentesCSV(listaMassa, usuarioNome);
             if (resultado.sucesso) {
-                alert("Sucesso! Todos os registros foram importados.");
+                alert("Sucesso! Todos os registos foram importados.");
                 carregarDados();
             } else {
                 alert("Erro durante a importação: " + resultado.erro);
@@ -227,7 +252,7 @@ export default function Dashboard() {
   };
 
   const handleExcluir = async (id: number) => {
-    if (confirm("ATENÇÃO: Tem certeza que deseja excluir permanentemente este adolescente do banco de dados?")) {
+    if (confirm("ATENÇÃO: Tem a certeza que deseja excluir permanentemente este adolescente da base de dados?")) {
       const res = await excluirAdolescente(id);
       if (res.sucesso) carregarDados();
       else alert("Erro ao excluir: " + res.erro);
@@ -236,9 +261,19 @@ export default function Dashboard() {
 
   const handleSalvar = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setSalvando(true);
+    
     const formData = new FormData(e.currentTarget);
     const dadosBrutos = Object.fromEntries(formData.entries());
+
+    // Validação matemática do CPF antes de salvar
+    if (dadosBrutos.cpf && String(dadosBrutos.cpf).length === 14) {
+        if (!validarCPF(String(dadosBrutos.cpf))) {
+            alert("CPF INVÁLIDO! Por favor, verifique os números digitados.");
+            return; // Bloqueia o salvamento
+        }
+    }
+
+    setSalvando(true);
     const dadosFormulario = { ...dadosBrutos, foto: fotoBase64 || "" };
 
     let resultado;
@@ -303,6 +338,10 @@ export default function Dashboard() {
     doc.text(`Data de Admissão: ${formatarData(jovemSelecionado.dataAdmissao) || '-'}`, 14, 171);
     doc.text(`Data de Saída: ${formatarData(jovemSelecionado.dataSaida) || '-'}`, 14, 178);
     doc.text(`Destino: ${jovemSelecionado.destino || '-'}`, 14, 185);
+
+    // Auditoria visual no PDF
+    doc.setFontSize(8); doc.setTextColor(150, 150, 150);
+    doc.text(`Última alteração efetuada por: ${jovemSelecionado.atualizadoPor || jovemSelecionado.criadoPor || 'Sistema'}`, 14, 280);
 
     doc.save(`Ficha_${jovemSelecionado.nomeCompleto.replace(/\s+/g, '_')}.pdf`);
   };
@@ -402,10 +441,9 @@ export default function Dashboard() {
 
         <main className="p-4 sm:p-8 max-w-7xl mx-auto space-y-6">
             
-            {/* === CABEÇALHO COM BOTÕES DE AÇÃO === */}
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                 <div>
-                    <h2 className="text-2xl font-bold text-slate-800">Registros e Inteligência</h2>
+                    <h2 className="text-2xl font-bold text-slate-800">Registos e Inteligência</h2>
                     <p className="text-slate-500 text-sm mt-1">Gerencie, analise gráficos e verifique prazos.</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -416,27 +454,13 @@ export default function Dashboard() {
                         📥 Importar CSV
                         <input type="file" accept=".csv" className="hidden" onChange={handleImportarArquivoCSV} />
                     </label>
-                    <button onClick={() => abrirModal('novo')} className="flex items-center justify-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg shadow-blue-500/30 hover:bg-blue-700 hover:-translate-y-0.5 transition-all w-full sm:w-auto mt-2 sm:mt-0">+ Novo Registro</button>
+                    <button onClick={() => abrirModal('novo')} className="flex items-center justify-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg shadow-blue-500/30 hover:bg-blue-700 hover:-translate-y-0.5 transition-all w-full sm:w-auto mt-2 sm:mt-0">+ Novo Registo</button>
                 </div>
             </div>
 
-            {/* === ALERTAS DE PRAZO === */}
-            {alertasPrazo.length > 0 && (
-                <div className="bg-red-50 border border-red-200 p-4 rounded-2xl shadow-sm flex items-start gap-4 animate-pulse">
-                    <div className="text-red-500 text-3xl">⚠️</div>
-                    <div>
-                        <h3 className="text-red-800 font-bold">Atenção: Prazos Críticos (Acima de 40 dias)</h3>
-                        <p className="text-red-600 text-sm">Existem {alertasPrazo.length} adolescente(s) em Internação Provisória aproximando-se ou excedendo o limite de 45 dias.</p>
-                    </div>
-                </div>
-            )}
-
-            {/* === PAINEL DE ESTATÍSTICAS E GRÁFICOS === */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                
-                {/* Card Total e Por Ano */}
                 <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
-                    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Total de Registros</h3>
+                    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Total de Registos (Filtrado)</h3>
                     <div className="text-4xl font-black text-blue-600 mb-4">{totalFiltrado}</div>
                     <div className="space-y-1">
                         {Object.entries(contagemPorAno).sort((a: any, b: any)=>Number(b[0])-Number(a[0])).slice(0,4).map(([ano, qtd]) => (
@@ -447,7 +471,6 @@ export default function Dashboard() {
                     </div>
                 </div>
 
-                {/* Gráfico Comarcas */}
                 <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex flex-col items-center">
                     <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 w-full text-left">Top 5 Comarcas</h3>
                     <div className="w-full h-40">
@@ -462,7 +485,6 @@ export default function Dashboard() {
                     </div>
                 </div>
 
-                {/* Gráfico Atos Infracionais */}
                 <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex flex-col items-center">
                     <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 w-full text-left">Atos Infracionais</h3>
                     <div className="w-full h-40">
@@ -478,43 +500,41 @@ export default function Dashboard() {
                 </div>
             </div>
 
-            {/* === ÁREA DE FILTROS AVANÇADOS === */}
             <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
-                <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 border-b border-slate-100 pb-2">Filtros de Pesquisa Avançada</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                <div className="flex justify-between items-center mb-4 border-b border-slate-100 pb-2">
+                    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Filtros de Pesquisa Avançada</h3>
                     
+                    {/* BOTÕES DE STATUS ATIVO/INATIVO */}
+                    <div className="flex bg-slate-100 p-1 rounded-lg">
+                        <button onClick={() => setStatusFiltro("Todos")} className={`px-3 py-1 text-xs font-bold rounded-md transition-colors ${statusFiltro === "Todos" ? "bg-white shadow-sm text-slate-800" : "text-slate-500"}`}>Todos</button>
+                        <button onClick={() => setStatusFiltro("Ativos")} className={`px-3 py-1 text-xs font-bold rounded-md transition-colors ${statusFiltro === "Ativos" ? "bg-emerald-500 shadow-sm text-white" : "text-slate-500"}`}>Apenas Ativos</button>
+                        <button onClick={() => setStatusFiltro("Inativos")} className={`px-3 py-1 text-xs font-bold rounded-md transition-colors ${statusFiltro === "Inativos" ? "bg-slate-500 shadow-sm text-white" : "text-slate-500"}`}>Já Saíram</button>
+                    </div>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
                     <div className="lg:col-span-2">
                         <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Buscar Nome/CPF</label>
                         <input type="text" placeholder="Digite..." className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50" value={busca} onChange={(e) => setBusca(e.target.value)} />
                     </div>
-                    
                     <div>
-                        <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Ano do Registro</label>
+                        <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Ano do Registo</label>
                         <select className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50" value={anoFiltro} onChange={(e) => setAnoFiltro(e.target.value)}>
-                            <option value="Todos">Todos os Anos</option>
-                            <option value="2026">2026</option>
-                            <option value="2025">2025</option>
-                            <option value="2024">2024</option>
-                            <option value="2023">2023</option>
+                            <option value="Todos">Todos os Anos</option><option value="2026">2026</option><option value="2025">2025</option><option value="2024">2024</option><option value="2023">2023</option>
                         </select>
                     </div>
-
                     <div>
                         <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Comarca</label>
                         <select className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50" value={comarcaFiltro} onChange={(e) => setComarcaFiltro(e.target.value)}>
-                            <option value="Todas">Todas as Comarcas</option>
-                            {comarcasUnicas.map(c => <option key={c} value={c}>{c}</option>)}
+                            <option value="Todas">Todas as Comarcas</option>{comarcasUnicas.map(c => <option key={c} value={c}>{c}</option>)}
                         </select>
                     </div>
-
                     <div>
                         <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Ato Infracional</label>
                         <select className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50" value={atoFiltro} onChange={(e) => setAtoFiltro(e.target.value)}>
-                            <option value="Todos">Todos os Atos</option>
-                            {atosUnicos.map(a => <option key={a} value={a}>{a}</option>)}
+                            <option value="Todos">Todos os Atos</option>{atosUnicos.map(a => <option key={a} value={a}>{a}</option>)}
                         </select>
                     </div>
-
                     <div className="lg:col-span-2 flex gap-2">
                         <div className="w-1/2">
                             <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Admissão (Início)</label>
@@ -525,15 +545,12 @@ export default function Dashboard() {
                             <input type="date" className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50" value={dataFim} onChange={(e) => setDataFim(e.target.value)} />
                         </div>
                     </div>
-                    
                     <div className="flex items-end lg:col-span-3">
                          <button onClick={() => { setBusca(""); setAnoFiltro("Todos"); setComarcaFiltro("Todas"); setAtoFiltro("Todos"); setDataInicio(""); setDataFim(""); }} className="px-4 py-2 text-sm font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors">Limpar Filtros</button>
                     </div>
-
                 </div>
             </div>
 
-            {/* === TABELA DE RESULTADOS === */}
             <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
                 <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse whitespace-nowrap">
@@ -542,30 +559,29 @@ export default function Dashboard() {
                                 <th className="p-4 font-bold uppercase tracking-wider text-xs">Nome Completo</th>
                                 <th className="p-4 font-bold uppercase tracking-wider text-xs">CPF</th>
                                 <th className="p-4 font-bold uppercase tracking-wider text-xs">Admissão</th>
-                                <th className="p-4 font-bold uppercase tracking-wider text-xs">Idade</th>
-                                <th className="p-4 font-bold uppercase tracking-wider text-xs">Situação/Medida</th>
+                                <th className="p-4 font-bold uppercase tracking-wider text-xs">Idade / Status</th>
                                 <th className="p-4 font-bold uppercase tracking-wider text-xs text-right">Ações</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                             {carregando ? (
-                                <tr><td colSpan={6} className="p-8 text-center text-blue-600 font-bold">Carregando dados...</td></tr>
-                            ) : dadosFiltrados.length === 0 ? (
-                                <tr><td colSpan={6} className="p-8 text-center text-slate-500">Nenhum registro encontrado para estes filtros.</td></tr>
+                                <tr><td colSpan={5} className="p-8 text-center text-blue-600 font-bold">A carregar dados...</td></tr>
+                            ) : dadosPaginados.length === 0 ? (
+                                <tr><td colSpan={5} className="p-8 text-center text-slate-500">Nenhum registo encontrado.</td></tr>
                             ) : (
-                              dadosFiltrados.map((jovem) => {
-                                  // CHECAGEM SE É REINCIDENTE NA TABELA
+                              dadosPaginados.map((jovem) => {
                                   const chaveIdentificacao = jovem.cpf || `${jovem.nomeCompleto}-${jovem.dataNascimento}`;
                                   const totalPassagens = contagemPassagens[chaveIdentificacao] || 1;
                                   const isReincidente = totalPassagens > 1;
+                                  const isInativo = !!jovem.dataSaida; // Tem data de saída = Inativo
 
                                   return (
-                                      <tr key={jovem.id} className="hover:bg-blue-50/50 transition-colors group">
+                                      <tr key={jovem.id} className={`hover:bg-blue-50/50 transition-colors group ${isInativo ? 'opacity-60 bg-slate-50/50' : ''}`}>
                                           <td className="p-4 font-bold text-slate-800">
                                               <div className="flex items-center gap-2">
                                                   {jovem.nomeCompleto}
                                                   {isReincidente && (
-                                                      <span className="bg-red-100 text-red-700 text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider border border-red-200 whitespace-nowrap" title={`${totalPassagens} passagens registradas`}>
+                                                      <span className="bg-red-100 text-red-700 text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider border border-red-200 whitespace-nowrap" title={`${totalPassagens} passagens registadas`}>
                                                           Reincidente
                                                       </span>
                                                   )}
@@ -573,13 +589,15 @@ export default function Dashboard() {
                                           </td>
                                           <td className="p-4 text-slate-600 text-sm">{jovem.cpf || '-'}</td>
                                           <td className="p-4 text-slate-600 text-sm">{formatarData(jovem.dataAdmissao)}</td>
-                                          <td className="p-4 text-slate-600 text-sm">
+                                          <td className="p-4 text-slate-600 text-sm flex gap-2 items-center">
                                               <span className="bg-slate-100 text-slate-800 px-3 py-1 rounded-lg font-bold border border-slate-200">{calcularIdade(jovem.dataNascimento)} anos</span>
-                                          </td>
-                                          <td className="p-4 text-slate-600 text-sm">
-                                              <span className={`px-3 py-1 rounded-lg font-bold text-xs border ${jovem.situacaoMedida?.includes('PROVISÓRIA') ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
-                                                  {jovem.situacaoMedida}
-                                              </span>
+                                              {isInativo ? (
+                                                  <span className="px-3 py-1 rounded-lg font-bold text-xs border bg-slate-200 text-slate-600 border-slate-300">DESLIGADO</span>
+                                              ) : (
+                                                  <span className={`px-3 py-1 rounded-lg font-bold text-xs border ${jovem.situacaoMedida?.includes('PROVISÓRIA') ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
+                                                      {jovem.situacaoMedida}
+                                                  </span>
+                                              )}
                                           </td>
                                           <td className="p-4 text-right space-x-3">
                                               <button onClick={() => abrirModal('ver', jovem)} className="text-blue-600 font-bold text-sm hover:underline">Ver Ficha</button>
@@ -598,10 +616,20 @@ export default function Dashboard() {
                         </tbody>
                     </table>
                 </div>
+
+                {/* CONTROLOS DE PAGINAÇÃO */}
+                {totalPaginas > 1 && (
+                    <div className="p-4 border-t border-slate-100 flex items-center justify-between bg-slate-50">
+                        <span className="text-sm text-slate-500">A mostrar <b>{(paginaAtual - 1) * ITENS_POR_PAGINA + 1}</b> até <b>{Math.min(paginaAtual * ITENS_POR_PAGINA, totalFiltrado)}</b> de <b>{totalFiltrado}</b> registos</span>
+                        <div className="flex gap-2">
+                            <button onClick={() => setPaginaAtual(p => Math.max(1, p - 1))} disabled={paginaAtual === 1} className="px-4 py-2 border rounded-lg text-sm font-bold disabled:opacity-50 hover:bg-slate-200 transition-colors">Anterior</button>
+                            <button onClick={() => setPaginaAtual(p => Math.min(totalPaginas, p + 1))} disabled={paginaAtual === totalPaginas} className="px-4 py-2 border rounded-lg text-sm font-bold disabled:opacity-50 hover:bg-slate-200 transition-colors">Seguinte</button>
+                        </div>
+                    </div>
+                )}
             </div>
         </main>
 
-        {/* === MODAL DE CADASTRO/EDIÇÃO === */}
         {modoModal !== 'fechado' && (
             <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 sm:p-6">
                 <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col animate-fade-in-up">
@@ -609,33 +637,31 @@ export default function Dashboard() {
                     <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center shrink-0">
                         <div>
                           <h3 className="text-xl font-bold text-slate-800">
-                             {modoModal === 'novo' ? "Novo Registro" : modoModal === 'editar' ? "Editar Adolescente" : "Ficha Completa"}
+                             {modoModal === 'novo' ? "Novo Registo" : modoModal === 'editar' ? "Editar Adolescente" : "Ficha Completa"}
                           </h3>
-                          <p className="text-xs text-slate-500 mt-1 uppercase">
-                             {modoModal === 'ver' ? "Apenas leitura de dados." : "Preencha os dados (o sistema salvará em caixa alta)."}
-                          </p>
                         </div>
                         <button onClick={() => setModoModal('fechado')} className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-red-100 hover:text-red-600 transition-colors font-bold">✕</button>
                     </div>
                     
-                    {/* === AVISO DE REINCIDÊNCIA AO CADASTRAR NOVO === */}
                     {avisoReincidencia && (
                         <div className="bg-amber-50 text-amber-800 p-3 text-sm font-bold border-b border-amber-200 flex items-center justify-center gap-2 animate-pulse">
                             {avisoReincidencia}
                         </div>
                     )}
 
-                    {/* === AVISO DE REINCIDÊNCIA AO VISUALIZAR FICHA === */}
                     {modoModal !== 'novo' && jovemSelecionado && contagemPassagens[jovemSelecionado.cpf || `${jovemSelecionado.nomeCompleto}-${jovemSelecionado.dataNascimento}`] > 1 && (
                          <div className="bg-red-50 text-red-700 p-3 text-sm font-bold border-b border-red-100 flex items-center justify-center gap-2">
-                             ⚠️ ATENÇÃO: Este adolescente é REINCIDENTE ({contagemPassagens[jovemSelecionado.cpf || `${jovemSelecionado.nomeCompleto}-${jovemSelecionado.dataNascimento}`]} passagens registradas).
+                             ⚠️ ATENÇÃO: Este adolescente é REINCIDENTE ({contagemPassagens[jovemSelecionado.cpf || `${jovemSelecionado.nomeCompleto}-${jovemSelecionado.dataNascimento}`]} passagens registadas).
                          </div>
                     )}
 
                     <div className="p-6 overflow-y-auto flex-1">
                         <form id="formCadastro" key={jovemSelecionado?.id || 'novo'} onSubmit={handleSalvar}>
+                            
+                            {/* CAMPO INVISÍVEL PARA GUARDAR A AUDITORIA DO UTILIZADOR */}
+                            <input type="hidden" name="usuarioEditor" value={usuarioNome} />
+
                             <fieldset disabled={modoModal === 'ver'} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                                
                                 <div className="col-span-full"><h4 className="text-sm font-bold text-blue-600 uppercase tracking-wider mb-2 border-b border-slate-100 pb-2">Identificação</h4></div>
                                 
                                 <div className="col-span-full flex flex-col md:flex-row gap-6 mb-2 items-start">
@@ -644,9 +670,7 @@ export default function Dashboard() {
                                             {fotoBase64 ? (
                                                 <img src={fotoBase64} alt="Foto" className="w-full h-full object-cover" />
                                             ) : (
-                                                <div className="flex flex-col items-center justify-center w-full h-full text-slate-400 text-sm font-medium">
-                                                    📷 Sem Foto
-                                                </div>
+                                                <div className="flex flex-col items-center justify-center w-full h-full text-slate-400 text-sm font-medium">📷 Sem Foto</div>
                                             )}
                                         </div>
                                         {modoModal !== 'ver' && (
@@ -656,9 +680,7 @@ export default function Dashboard() {
                                             </label>
                                         )}
                                         {modoModal !== 'ver' && fotoBase64 && (
-                                            <button type="button" onClick={() => setFotoBase64(null)} className="text-red-500 text-xs font-bold hover:underline">
-                                                Remover
-                                            </button>
+                                            <button type="button" onClick={() => setFotoBase64(null)} className="text-red-500 text-xs font-bold hover:underline">Remover</button>
                                         )}
                                     </div>
 
@@ -678,17 +700,12 @@ export default function Dashboard() {
                                                     const mascarado = mascaraCPF(e.target.value);
                                                     e.target.value = mascarado;
                                                     
-                                                    // Checa reincidência ao digitar os 14 caracteres do CPF no modo 'novo'
                                                     if (mascarado.length === 14 && modoModal === 'novo') {
                                                         const passagens = dados.filter(d => d.cpf === mascarado).length;
                                                         if (passagens > 0) {
-                                                            setAvisoReincidencia(`⚠️ Este CPF já possui ${passagens} passagem(ns) no sistema. Este será um registro de REINCIDÊNCIA.`);
-                                                        } else {
-                                                            setAvisoReincidencia(null);
-                                                        }
-                                                    } else if (mascarado.length < 14) {
-                                                        setAvisoReincidencia(null);
-                                                    }
+                                                            setAvisoReincidencia(`⚠️ Este CPF já possui ${passagens} passagem(ns) no sistema. Este será um registo de REINCIDÊNCIA.`);
+                                                        } else { setAvisoReincidencia(null); }
+                                                    } else if (mascarado.length < 14) { setAvisoReincidencia(null); }
                                                 }} 
                                                 placeholder="000.000.000-00" 
                                                 className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100" 
@@ -743,7 +760,7 @@ export default function Dashboard() {
                                     </select>
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-semibold text-slate-700 mb-2">Ano de Registro</label>
+                                    <label className="block text-sm font-semibold text-slate-700 mb-2">Ano de Registo</label>
                                     <input type="number" name="anoRegistro" defaultValue={jovemSelecionado?.anoRegistro || new Date().getFullYear()} required className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100" />
                                 </div>
 
@@ -767,6 +784,13 @@ export default function Dashboard() {
 
                             </fieldset>
                         </form>
+                        
+                        {/* MOSTRAR QUEM REGISTOU (Se for modo visualização) */}
+                        {modoModal === 'ver' && jovemSelecionado && (
+                            <div className="mt-8 pt-4 border-t text-right text-xs text-slate-400 font-medium">
+                                Última alteração efetuada por: {jovemSelecionado.atualizadoPor || jovemSelecionado.criadoPor || 'Sistema'}
+                            </div>
+                        )}
                     </div>
 
                     <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-3 bg-slate-50 rounded-b-2xl shrink-0">
@@ -779,7 +803,7 @@ export default function Dashboard() {
                             <>
                               <button type="button" onClick={() => setModoModal('fechado')} className="px-5 py-2.5 rounded-xl font-bold text-slate-600 hover:bg-slate-200 transition-colors">Cancelar</button>
                               <button type="submit" form="formCadastro" disabled={salvando} className="px-6 py-2.5 rounded-xl font-bold text-white bg-blue-600 hover:bg-blue-700 shadow-md shadow-blue-500/30 transition-all disabled:opacity-70">
-                                  {salvando ? "Processando..." : modoModal === 'editar' ? "Salvar Alterações" : "Salvar Registro"}
+                                  {salvando ? "A Processar..." : modoModal === 'editar' ? "Guardar Alterações" : "Guardar Registo"}
                               </button>
                             </>
                         )}
