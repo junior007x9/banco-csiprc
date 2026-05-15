@@ -117,7 +117,6 @@ export default function Dashboard() {
       acc[c] = (acc[c] || 0) + 1;
       return acc;
   }, {} as Record<string, number>);
-  // CORREÇÃO: Usando 'any' no sort para evitar o erro do TypeScript no build da Vercel
   const topComarcas = Object.entries(contagemPorComarca).sort((a: any, b: any) => b[1] - a[1]).slice(0, 3);
 
   const contagemPorAto = dadosFiltrados.reduce((acc, j) => {
@@ -125,7 +124,6 @@ export default function Dashboard() {
       acc[a] = (acc[a] || 0) + 1;
       return acc;
   }, {} as Record<string, number>);
-  // CORREÇÃO: Usando 'any' no sort para evitar o erro do TypeScript no build da Vercel
   const topAtos = Object.entries(contagemPorAto).sort((a: any, b: any) => b[1] - a[1]).slice(0, 3);
 
   // === FUNÇÕES DO MODAL E CRUD ===
@@ -361,9 +359,9 @@ export default function Dashboard() {
                     <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Total de Registros</h3>
                     <div className="text-3xl font-black text-blue-600 mb-4">{totalFiltrado}</div>
                     <div className="space-y-1">
-                        {Object.entries(contagemPorAno).sort((a,b)=>Number(b[0])-Number(a[0])).slice(0,4).map(([ano, qtd]) => (
+                        {Object.entries(contagemPorAno).sort((a: any, b: any)=>Number(b[0])-Number(a[0])).slice(0,4).map(([ano, qtd]) => (
                             <div key={ano} className="flex justify-between text-sm text-slate-600 border-t border-slate-100 pt-1">
-                                <span>Ano {ano}</span><span className="font-bold">{qtd}</span>
+                                <span>Ano {ano}</span><span className="font-bold">{String(qtd)}</span>
                             </div>
                         ))}
                     </div>
@@ -378,9 +376,9 @@ export default function Dashboard() {
                                 <div key={comarca}>
                                     <div className="flex justify-between text-sm mb-1">
                                         <span className="font-semibold text-slate-700 truncate pr-2">{comarca}</span>
-                                        <span className="font-bold text-blue-600">{qtd as React.ReactNode}</span>
+                                        <span className="font-bold text-blue-600">{String(qtd)}</span>
                                     </div>
-                                    <div className="w-full bg-slate-100 rounded-full h-1.5"><div className="bg-blue-500 h-1.5 rounded-full" style={{ width: `${((qtd as number)/totalFiltrado)*100}%` }}></div></div>
+                                    <div className="w-full bg-slate-100 rounded-full h-1.5"><div className="bg-blue-500 h-1.5 rounded-full" style={{ width: `${(Number(qtd)/totalFiltrado)*100}%` }}></div></div>
                                 </div>
                             ))}
                         </div>
@@ -396,9 +394,9 @@ export default function Dashboard() {
                                 <div key={ato}>
                                     <div className="flex justify-between text-sm mb-1">
                                         <span className="font-semibold text-slate-700 truncate pr-2 max-w-[85%]">{ato}</span>
-                                        <span className="font-bold text-amber-500">{qtd as React.ReactNode}</span>
+                                        <span className="font-bold text-amber-500">{String(qtd)}</span>
                                     </div>
-                                    <div className="w-full bg-slate-100 rounded-full h-1.5"><div className="bg-amber-400 h-1.5 rounded-full" style={{ width: `${((qtd as number)/totalFiltrado)*100}%` }}></div></div>
+                                    <div className="w-full bg-slate-100 rounded-full h-1.5"><div className="bg-amber-400 h-1.5 rounded-full" style={{ width: `${(Number(qtd)/totalFiltrado)*100}%` }}></div></div>
                                 </div>
                             ))}
                         </div>
