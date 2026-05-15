@@ -38,8 +38,13 @@ const mascaraCPF = (valor: string) => {
 };
 
 export default function Dashboard() {
+  // === ESTADOS DOS FILTROS ===
   const [busca, setBusca] = useState("");
   const [anoFiltro, setAnoFiltro] = useState("Todos");
+  const [comarcaFiltro, setComarcaFiltro] = useState("Todas");
+  const [atoFiltro, setAtoFiltro] = useState("Todos");
+  const [dataInicio, setDataInicio] = useState("");
+  const [dataFim, setDataFim] = useState("");
   
   const [modoModal, setModoModal] = useState<'fechado' | 'novo' | 'ver' | 'editar'>('fechado');
   const [jovemSelecionado, setJovemSelecionado] = useState<any>(null);
@@ -70,13 +75,58 @@ export default function Dashboard() {
     carregarDados();
   }, []);
 
+  // === OPÇÕES DINÂMICAS PARA OS FILTROS (Extraídas do banco) ===
+  const comarcasUnicas = Array.from(new Set(dados.map(d => d.comarca).filter(Boolean))).sort();
+  const atosUnicos = Array.from(new Set(dados.map(d => d.atoInfracional).filter(Boolean))).sort();
+
+  // === LÓGICA DE FILTRAGEM MULTIPLA ===
   const dadosFiltrados = dados.filter((jovem) => {
     const matchNome = jovem.nomeCompleto?.toLowerCase().includes(busca.toLowerCase());
     const matchCpf = jovem.cpf?.includes(busca);
     const matchAno = anoFiltro === "Todos" || jovem.anoRegistro?.toString() === anoFiltro;
-    return (matchNome || matchCpf) && matchAno;
+    const matchComarca = comarcaFiltro === "Todas" || jovem.comarca === comarcaFiltro;
+    const matchAto = atoFiltro === "Todos" || jovem.atoInfracional === atoFiltro;
+    
+    // Filtro por Período de Admissão
+    let matchPeriodo = true;
+    if (dataInicio || dataFim) {
+        if (!jovem.dataAdmissao) {
+            matchPeriodo = false;
+        } else {
+            const dataAdmissao = new Date(jovem.dataAdmissao);
+            if (dataInicio && dataAdmissao < new Date(dataInicio)) matchPeriodo = false;
+            // Para incluir até o último minuto do dia final
+            if (dataFim && dataAdmissao > new Date(dataFim + 'T23:59:59')) matchPeriodo = false;
+        }
+    }
+
+    return (matchNome || matchCpf) && matchAno && matchComarca && matchAto && matchPeriodo;
   });
 
+  // === CÁLCULO DE ESTATÍSTICAS (Baseado no que está filtrado na tela) ===
+  const totalFiltrado = dadosFiltrados.length;
+  
+  const contagemPorAno = dadosFiltrados.reduce((acc, j) => {
+      const ano = j.anoRegistro || 'Sem Ano';
+      acc[ano] = (acc[ano] || 0) + 1;
+      return acc;
+  }, {} as Record<string, number>);
+
+  const contagemPorComarca = dadosFiltrados.reduce((acc, j) => {
+      const c = j.comarca || 'NÃO INFORMADA';
+      acc[c] = (acc[c] || 0) + 1;
+      return acc;
+  }, {} as Record<string, number>);
+  const topComarcas = Object.entries(contagemPorComarca).sort((a,b)=>b[1]-a[1]).slice(0, 3);
+
+  const contagemPorAto = dadosFiltrados.reduce((acc, j) => {
+      const a = j.atoInfracional || 'NÃO INFORMADO';
+      acc[a] = (acc[a] || 0) + 1;
+      return acc;
+  }, {} as Record<string, number>);
+  const topAtos = Object.entries(contagemPorAto).sort((a,b)=>b[1]-a[1]).slice(0, 3);
+
+  // === FUNÇÕES DO MODAL E CRUD ===
   const abrirModal = (modo: 'novo' | 'ver' | 'editar', jovem: any = null) => {
     setJovemSelecionado(jovem);
     setFotoBase64(jovem?.foto || null); 
@@ -94,15 +144,11 @@ export default function Dashboard() {
     }
   };
 
-  // === LÓGICA DE IMPORTAÇÃO DE ARQUIVO CSV ===
   const handleImportarArquivoCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     const reader = new FileReader();
-    // Usa windows-1252 para ler o CSV gerado no Excel sem quebrar os acentos em português
     reader.readAsText(file, 'windows-1252');
-
     reader.onload = async (evento) => {
         const texto = evento.target?.result as string;
         const delimitador = texto.includes(';') ? ';' : ',';
@@ -110,7 +156,6 @@ export default function Dashboard() {
         
         if (linhas.length <= 1) return alert("Arquivo CSV vazio ou sem dados válidos.");
 
-        // Formatador para converter as datas brasileiras DD/MM/YYYY do Excel para YYYY-MM-DD do Banco
         const formatarDataCSV = (dataStr: string) => {
             if (!dataStr) return "";
             if (dataStr.includes('/')) {
@@ -121,16 +166,10 @@ export default function Dashboard() {
         };
 
         const listaMassa = [];
-
-        // Ignoramos a primeira linha (cabeçalho)
         for (let i = 1; i < linhas.length; i++) {
-            // Regex que divide por vírgula ou ponto-e-vírgula ignorando os que estão dentro de aspas
             const regexSeparador = delimitador === ';' ? /;(?=(?:(?:[^"]*"){2})*[^"]*$)/ : /,(?=(?:(?:[^"]*"){2})*[^"]*$)/;
             const colunas = linhas[i].split(regexSeparador).map(c => c.replace(/^"|"$/g, '').trim());
 
-            // MAPEAMENTO CONFORME SUA LISTA:
-            // 0: Nome, 1: Data Nasc., 2: Responsável, 3: Parentesco, 4: Série/Ano, 5: Endereço, 6: Bairro, 7: Comarca, 
-            // 8: Ato Infracional, 9: Ano, 10: Apreensão, 11: Admissão, 12: Data Saída, 13: Destino
             if (colunas.length >= 2 && colunas[0]) {
                 listaMassa.push({
                     nomeCompleto: colunas[0],
@@ -151,19 +190,17 @@ export default function Dashboard() {
             }
         }
 
-        if (confirm(`Foram identificados ${listaMassa.length} registros no CSV. Tem certeza que deseja importar todos para o banco?`)) {
+        if (confirm(`Foram identificados ${listaMassa.length} registros. Confirmar importação?`)) {
             setCarregando(true);
             const resultado = await importarAdolescentesCSV(listaMassa);
             if (resultado.sucesso) {
-                alert("Sucesso! Todos os registros foram importados e salvos em CAIXA ALTA.");
+                alert("Sucesso! Todos os registros foram importados.");
                 carregarDados();
             } else {
                 alert("Erro durante a importação: " + resultado.erro);
             }
             setCarregando(false);
         }
-        
-        // Limpa o input file para permitir importar novamente
         e.target.value = "";
     };
   };
@@ -179,14 +216,9 @@ export default function Dashboard() {
   const handleSalvar = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setSalvando(true);
-
     const formData = new FormData(e.currentTarget);
     const dadosBrutos = Object.fromEntries(formData.entries());
-    
-    const dadosFormulario = {
-      ...dadosBrutos,
-      foto: fotoBase64 || "" 
-    };
+    const dadosFormulario = { ...dadosBrutos, foto: fotoBase64 || "" };
 
     let resultado;
     if (modoModal === 'editar' && jovemSelecionado) {
@@ -204,18 +236,16 @@ export default function Dashboard() {
     setSalvando(false);
   };
 
-  const sair = async () => {
-      await fazerLogout();
-      window.location.href = '/';
-  }
+  const sair = async () => { await fazerLogout(); window.location.href = '/'; }
 
+  // === FUNÇÕES DE EXPORTAÇÃO ===
   const exportarParaPDF = () => {
     if (dadosFiltrados.length === 0) return alert("Sem dados para exportar.");
     const doc = new jsPDF('landscape'); 
     doc.setFontSize(18);
     doc.text("Relatório de Adolescentes - CSIPRC", 14, 20);
     doc.setFontSize(10);
-    doc.text(`Filtro atual: ${anoFiltro} | Registros: ${dadosFiltrados.length}`, 14, 28);
+    doc.text(`Filtro atual: ${totalFiltrado} registros encontrados.`, 14, 28);
 
     const tableData = dadosFiltrados.map((jovem, index) => [
       index + 1, jovem.nomeCompleto || "", jovem.cpf || "", formatarData(jovem.dataApreensao), formatarData(jovem.dataAdmissao),
@@ -229,7 +259,7 @@ export default function Dashboard() {
       head: [['Nº', 'NOME', 'CPF', 'APREENSÃO', 'ADMISSÃO', 'D.N.', 'IDADE', 'RESPONSÁVEL', 'PARENTESCO', 'ENDEREÇO', 'BAIRRO', 'COMARCA', 'ATO INFRACIONAL', 'SÉRIE/ ANO', 'MEDIDA', 'DATA SAÍDA', 'DESTINO']],
       body: tableData, theme: 'grid', headStyles: { fillColor: [37, 99, 235], fontSize: 5 }, styles: { fontSize: 5, cellPadding: 1 }, 
     });
-    doc.save(`relatorio_csiprc_${anoFiltro}.pdf`);
+    doc.save(`relatorio_csiprc.pdf`);
   };
 
   const exportarParaExcel = async () => {
@@ -254,7 +284,6 @@ export default function Dashboard() {
         row.getCell(6).value = formatarData(jovem.dataNascimento); 
         row.getCell(7).value = calcularIdade(jovem.dataNascimento);
         row.getCell(8).value = jovem.nomeResponsavel || ""; 
-        // Adicionando parentesco no excel se você tiver criado a coluna na planilha (pode ficar na 9, deslocando as outras)
         row.getCell(9).value = jovem.parentesco || "";
         row.getCell(10).value = jovem.endereco || ""; 
         row.getCell(11).value = jovem.bairro || "";
@@ -269,16 +298,14 @@ export default function Dashboard() {
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const url = window.URL.createObjectURL(blob); const a = document.createElement('a');
-      a.href = url; a.download = `BANCO_DE_DADOS_CSIPRC_${anoFiltro}.xlsx`; a.click(); window.URL.revokeObjectURL(url);
-    } catch (error) {
-      alert("Erro ao gerar o Excel.");
-    }
+      a.href = url; a.download = `BANCO_DE_DADOS_CSIPRC.xlsx`; a.click(); window.URL.revokeObjectURL(url);
+    } catch (error) { alert("Erro ao gerar o Excel."); }
     setExportandoExcel(false);
   };
 
   const compartilharWhatsApp = () => {
     if (dadosFiltrados.length === 0) return alert("Sem dados para exportar.");
-    let texto = `*BANCO DE DADOS CSIPRC*\nFiltro: ${anoFiltro} | Total: ${dadosFiltrados.length} registros\n\n`;
+    let texto = `*BANCO DE DADOS CSIPRC*\nTotal Selecionado: ${totalFiltrado} registros\n\n`;
     for (let i = 0; i < Math.min(dadosFiltrados.length, 15); i++) {
       const j = dadosFiltrados[i];
       texto += `*Nº ${i + 1} - ${j.nomeCompleto}* (${calcularIdade(j.dataNascimento)} anos)\n├ CPF: ${j.cpf || 'Não inf.'}\n├ Admissão: ${formatarData(j.dataAdmissao)}\n└ Medida: ${j.situacaoMedida || 'Não inf.'}\n\n`;
@@ -306,42 +333,133 @@ export default function Dashboard() {
         </header>
 
         <main className="p-4 sm:p-8 max-w-7xl mx-auto space-y-6">
+            
+            {/* === CABEÇALHO COM BOTÕES DE AÇÃO === */}
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                 <div>
-                    <h2 className="text-2xl font-bold text-slate-800">Registros de Adolescentes</h2>
-                    <p className="text-slate-500 text-sm mt-1">Gerencie, filtre e exporte os dados do sistema.</p>
+                    <h2 className="text-2xl font-bold text-slate-800">Registros e Estatísticas</h2>
+                    <p className="text-slate-500 text-sm mt-1">Gerencie e analise os dados do sistema em tempo real.</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
                     <button onClick={exportarParaPDF} className="flex items-center justify-center gap-2 bg-red-50 text-red-600 px-4 py-2.5 rounded-xl font-bold border border-red-200 hover:bg-red-100 transition-all shadow-sm">📄 <span className="hidden sm:inline">PDF</span></button>
                     <button onClick={exportarParaExcel} disabled={exportandoExcel} className="flex items-center justify-center gap-2 bg-green-50 text-green-700 px-4 py-2.5 rounded-xl font-bold border border-green-200 hover:bg-green-100 transition-all shadow-sm disabled:opacity-50">📊 <span className="hidden sm:inline">{exportandoExcel ? "Gerando..." : "Excel"}</span></button>
                     <button onClick={compartilharWhatsApp} className="flex items-center justify-center gap-2 bg-emerald-50 text-emerald-600 px-4 py-2.5 rounded-xl font-bold border border-emerald-200 hover:bg-emerald-100 transition-all shadow-sm">💬 <span className="hidden sm:inline">WhatsApp</span></button>
-                    
-                    {/* === BOTÃO DE IMPORTAR CSV === */}
                     <label className="flex items-center justify-center gap-2 bg-purple-600 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg shadow-purple-500/30 hover:bg-purple-700 hover:-translate-y-0.5 transition-all w-full sm:w-auto mt-2 sm:mt-0 cursor-pointer">
                         📥 Importar CSV
                         <input type="file" accept=".csv" className="hidden" onChange={handleImportarArquivoCSV} />
                     </label>
-
                     <button onClick={() => abrirModal('novo')} className="flex items-center justify-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg shadow-blue-500/30 hover:bg-blue-700 hover:-translate-y-0.5 transition-all w-full sm:w-auto mt-2 sm:mt-0">+ Novo Registro</button>
                 </div>
             </div>
 
-            <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row gap-4">
-                <div className="flex-1">
-                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Buscar por Nome ou CPF</label>
-                    <input type="text" placeholder="Digite o nome ou CPF..." className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 transition-all" value={busca} onChange={(e) => setBusca(e.target.value)} />
+            {/* === PAINEL DE ESTATÍSTICAS INTELIGENTE === */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                {/* Card Total e Por Ano */}
+                <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+                    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Total de Registros</h3>
+                    <div className="text-3xl font-black text-blue-600 mb-4">{totalFiltrado}</div>
+                    <div className="space-y-1">
+                        {Object.entries(contagemPorAno).sort((a,b)=>Number(b[0])-Number(a[0])).slice(0,4).map(([ano, qtd]) => (
+                            <div key={ano} className="flex justify-between text-sm text-slate-600 border-t border-slate-100 pt-1">
+                                <span>Ano {ano}</span><span className="font-bold">{qtd}</span>
+                            </div>
+                        ))}
+                    </div>
                 </div>
-                <div className="w-full md:w-56">
-                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Filtrar por Ano</label>
-                    <select className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 transition-all" value={anoFiltro} onChange={(e) => setAnoFiltro(e.target.value)}>
-                        <option value="Todos">Todos os Anos</option>
-                        <option value="2026">2026</option>
-                        <option value="2025">2025</option>
-                        <option value="2024">2024</option>
-                    </select>
+
+                {/* Card Comarcas */}
+                <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+                    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Principais Comarcas</h3>
+                    {topComarcas.length > 0 ? (
+                        <div className="space-y-3">
+                            {topComarcas.map(([comarca, qtd]) => (
+                                <div key={comarca}>
+                                    <div className="flex justify-between text-sm mb-1">
+                                        <span className="font-semibold text-slate-700 truncate pr-2">{comarca}</span>
+                                        <span className="font-bold text-blue-600">{qtd}</span>
+                                    </div>
+                                    <div className="w-full bg-slate-100 rounded-full h-1.5"><div className="bg-blue-500 h-1.5 rounded-full" style={{ width: `${(qtd/totalFiltrado)*100}%` }}></div></div>
+                                </div>
+                            ))}
+                        </div>
+                    ) : <div className="text-sm text-slate-400">Nenhum dado...</div>}
+                </div>
+
+                {/* Card Atos Infracionais */}
+                <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 lg:col-span-2">
+                    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Atos Infracionais Mais Frequentes</h3>
+                    {topAtos.length > 0 ? (
+                        <div className="space-y-3">
+                            {topAtos.map(([ato, qtd]) => (
+                                <div key={ato}>
+                                    <div className="flex justify-between text-sm mb-1">
+                                        <span className="font-semibold text-slate-700 truncate pr-2 max-w-[85%]">{ato}</span>
+                                        <span className="font-bold text-amber-500">{qtd}</span>
+                                    </div>
+                                    <div className="w-full bg-slate-100 rounded-full h-1.5"><div className="bg-amber-400 h-1.5 rounded-full" style={{ width: `${(qtd/totalFiltrado)*100}%` }}></div></div>
+                                </div>
+                            ))}
+                        </div>
+                    ) : <div className="text-sm text-slate-400">Nenhum dado...</div>}
                 </div>
             </div>
 
+            {/* === ÁREA DE FILTROS AVANÇADOS === */}
+            <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+                <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 border-b border-slate-100 pb-2">Filtros de Pesquisa Avançada</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                    
+                    <div className="lg:col-span-2">
+                        <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Buscar Nome/CPF</label>
+                        <input type="text" placeholder="Digite..." className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50" value={busca} onChange={(e) => setBusca(e.target.value)} />
+                    </div>
+                    
+                    <div>
+                        <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Ano do Registro</label>
+                        <select className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50" value={anoFiltro} onChange={(e) => setAnoFiltro(e.target.value)}>
+                            <option value="Todos">Todos os Anos</option>
+                            <option value="2026">2026</option>
+                            <option value="2025">2025</option>
+                            <option value="2024">2024</option>
+                            <option value="2023">2023</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Comarca</label>
+                        <select className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50" value={comarcaFiltro} onChange={(e) => setComarcaFiltro(e.target.value)}>
+                            <option value="Todas">Todas as Comarcas</option>
+                            {comarcasUnicas.map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Ato Infracional</label>
+                        <select className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50" value={atoFiltro} onChange={(e) => setAtoFiltro(e.target.value)}>
+                            <option value="Todos">Todos os Atos</option>
+                            {atosUnicos.map(a => <option key={a} value={a}>{a}</option>)}
+                        </select>
+                    </div>
+
+                    <div className="lg:col-span-2 flex gap-2">
+                        <div className="w-1/2">
+                            <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Admissão (Início)</label>
+                            <input type="date" className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} />
+                        </div>
+                        <div className="w-1/2">
+                            <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Admissão (Fim)</label>
+                            <input type="date" className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50" value={dataFim} onChange={(e) => setDataFim(e.target.value)} />
+                        </div>
+                    </div>
+                    
+                    <div className="flex items-end lg:col-span-3">
+                         <button onClick={() => { setBusca(""); setAnoFiltro("Todos"); setComarcaFiltro("Todas"); setAtoFiltro("Todos"); setDataInicio(""); setDataFim(""); }} className="px-4 py-2 text-sm font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors">Limpar Filtros</button>
+                    </div>
+
+                </div>
+            </div>
+
+            {/* === TABELA DE RESULTADOS === */}
             <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
                 <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse whitespace-nowrap">
@@ -359,7 +477,7 @@ export default function Dashboard() {
                             {carregando ? (
                                 <tr><td colSpan={6} className="p-8 text-center text-blue-600 font-bold">Carregando dados...</td></tr>
                             ) : dadosFiltrados.length === 0 ? (
-                                <tr><td colSpan={6} className="p-8 text-center text-slate-500">Nenhum registro encontrado.</td></tr>
+                                <tr><td colSpan={6} className="p-8 text-center text-slate-500">Nenhum registro encontrado para estes filtros.</td></tr>
                             ) : (
                               dadosFiltrados.map((jovem) => (
                                   <tr key={jovem.id} className="hover:bg-blue-50/50 transition-colors group">
@@ -393,6 +511,7 @@ export default function Dashboard() {
             </div>
         </main>
 
+        {/* === MODAL DE CADASTRO/EDIÇÃO === */}
         {modoModal !== 'fechado' && (
             <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 sm:p-6">
                 <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col animate-fade-in-up">
@@ -459,29 +578,26 @@ export default function Dashboard() {
                                     <label className="block text-sm font-semibold text-slate-700 mb-2">Responsável</label>
                                     <input type="text" style={{ textTransform: 'uppercase' }} name="nomeResponsavel" defaultValue={jovemSelecionado?.nomeResponsavel || ""} className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100" />
                                 </div>
-
-                                {/* === NOVO CAMPO DE PARENTESCO NO FORMULÁRIO === */}
                                 <div>
                                     <label className="block text-sm font-semibold text-slate-700 mb-2">Parentesco</label>
-                                    <input type="text" style={{ textTransform: 'uppercase' }} name="parentesco" placeholder="EX: MÃE, PAI, AVÓ..." defaultValue={jovemSelecionado?.parentesco || ""} className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100" />
+                                    <input type="text" style={{ textTransform: 'uppercase' }} name="parentesco" placeholder="EX: MÃE, PAI..." defaultValue={jovemSelecionado?.parentesco || ""} className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100" />
                                 </div>
-
                                 <div>
-                                    <label className="block text-sm font-semibold text-slate-700 mb-2">Série/Ano (SÉRIE/ ANO)</label>
+                                    <label className="block text-sm font-semibold text-slate-700 mb-2">Série/Ano Escolar</label>
                                     <input type="text" style={{ textTransform: 'uppercase' }} name="serieAnoEscolar" defaultValue={jovemSelecionado?.serieAnoEscolar || ""} className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100" />
                                 </div>
 
                                 <div className="col-span-full mt-2"><h4 className="text-sm font-bold text-blue-600 uppercase tracking-wider mb-2 border-b border-slate-100 pb-2">Localização</h4></div>
                                 <div className="col-span-1 md:col-span-2">
-                                    <label className="block text-sm font-semibold text-slate-700 mb-2">Endereço (ENDEREÇO)</label>
+                                    <label className="block text-sm font-semibold text-slate-700 mb-2">Endereço</label>
                                     <input type="text" style={{ textTransform: 'uppercase' }} name="endereco" defaultValue={jovemSelecionado?.endereco || ""} className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100" />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-semibold text-slate-700 mb-2">Bairro (BAIRRO)</label>
+                                    <label className="block text-sm font-semibold text-slate-700 mb-2">Bairro</label>
                                     <input type="text" style={{ textTransform: 'uppercase' }} name="bairro" defaultValue={jovemSelecionado?.bairro || ""} className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100" />
                                 </div>
                                 <div className="col-span-1 md:col-span-3">
-                                    <label className="block text-sm font-semibold text-slate-700 mb-2">Comarca (COMARCA)</label>
+                                    <label className="block text-sm font-semibold text-slate-700 mb-2">Comarca</label>
                                     <input type="text" style={{ textTransform: 'uppercase' }} name="comarca" defaultValue={jovemSelecionado?.comarca || ""} className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100" />
                                 </div>
 
@@ -500,7 +616,7 @@ export default function Dashboard() {
                                     </select>
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-semibold text-slate-700 mb-2">Ano de Registro (Filtro)</label>
+                                    <label className="block text-sm font-semibold text-slate-700 mb-2">Ano de Registro</label>
                                     <input type="number" name="anoRegistro" defaultValue={jovemSelecionado?.anoRegistro || new Date().getFullYear()} required className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-600 outline-none bg-slate-50 disabled:opacity-70 disabled:bg-slate-100" />
                                 </div>
 
